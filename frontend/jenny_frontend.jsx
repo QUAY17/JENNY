@@ -1,39 +1,7 @@
 import { useState, useRef, useCallback } from "react";
 
-const PHASE0_SYSTEM = `You are a document structure extractor. Your ONLY job is to read a source SOP draft and output a JSON config. You do NOT generate documents, modify templates, write XML, or make creative decisions.
+const API_BASE = "http://localhost:5000";
 
-CRITICAL RULES:
-1. VERBATIM EXTRACTION - Copy text exactly. Do not fix spelling, grammar, capitalization, or punctuation.
-2. NO INVENTION - Every string must trace to the source document.
-3. PRESERVE HIERARCHY - ilvl 0 = main steps (1./2./3.), ilvl 1 = sub-steps (a./b./c.), ilvl 2 = sub-sub-steps (i./ii./iii.)
-4. AMPERSAND ENCODING - Encode & as &amp; ONLY in full_title and short_title (for XML insertion).
-5. SECTIONS 4,5,7 are DERIVED from Section 6 content only.
-6. OUTPUT FORMAT - Return ONLY valid JSON. No markdown, no preamble, no explanation.`;
-
-const PHASE0_USER = (draftText) => `Read this SOP draft and extract into JSON:
-
-${draftText}
-
-Return ONLY this JSON structure (no markdown fences):
-{
-  "full_title": "encode & as &amp;",
-  "short_title": "encode & as &amp;",
-  "structure_type": "single",
-  "cover_date": "",
-  "author": "JENNY-v13",
-  "gen_date": "${new Date().toLocaleDateString('en-US', {month:'2-digit',day:'2-digit',year:'numeric'})}",
-  "extraction_notes": [],
-  "purpose": "",
-  "scope": "",
-  "s6_intro": "",
-  "s6_steps": [{"text":"","ilvl":0,"highlighted":false}],
-  "s4_roles": ["Role: Description"],
-  "s5_materials": "Required materials and tools include: ...",
-  "s7_guidelines": ["guideline"],
-  "s3_supersession": "This document does not supersede any existing FEMA doctrine."
-}`;
-
-// Styles
 const colors = {
   bg: "#0a0f1a",
   surface: "#111827",
@@ -139,7 +107,6 @@ function ConfigEditor({ config, onChange }) {
     const pathStr = fullPath.join(".");
 
     if (Array.isArray(value) && value.length > 0 && typeof value[0] === "object" && value[0].text !== undefined) {
-      // s6_steps
       return (
         <div key={pathStr} style={{ marginBottom: 16 }}>
           <label style={{ display: "block", fontSize: 11, fontFamily: font, color: colors.accent, marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.05em" }}>
@@ -257,115 +224,64 @@ export default function JennyApp() {
   const [status, setStatus] = useState("idle");
   const [config, setConfig] = useState(null);
   const [logs, setLogs] = useState([]);
+  const [sessionId, setSessionId] = useState(null);
   const [validationResult, setValidationResult] = useState(null);
+  const [downloadUrl, setDownloadUrl] = useState(null);
 
   const log = useCallback((msg, type = "log") => {
     const time = new Date().toLocaleTimeString("en-US", { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" });
     setLogs(prev => [...prev, { time, msg, type }]);
   }, []);
 
-  const readDocxText = async (file) => {
-    // For prototype: extract raw text from docx by reading XML
-    const buf = await file.arrayBuffer();
-    const blob = new Blob([buf]);
-    // Simple extraction: convert to text representation
-    // In production, this would use mammoth or server-side extraction
-    const text = await new Promise((resolve) => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        // Try to find readable text patterns in the binary
-        const arr = new Uint8Array(reader.result);
-        let str = "";
-        for (let i = 0; i < arr.length; i++) {
-          if (arr[i] >= 32 && arr[i] < 127) str += String.fromCharCode(arr[i]);
-          else if (str.length > 0 && arr[i] === 0) continue;
-          else str += " ";
-        }
-        // Extract text between <w:t> tags if possible
-        const wtMatches = str.match(/<w:t[^>]*>[^<]+<\/w:t>/g);
-        if (wtMatches) {
-          const texts = wtMatches.map(m => m.replace(/<[^>]+>/g, "")).filter(t => t.trim());
-          resolve(texts.join("\n"));
-        } else {
-          resolve(str.replace(/\s+/g, " ").trim());
-        }
-      };
-      reader.readAsArrayBuffer(blob);
-    });
-    return text;
-  };
-
-  const extractConfig = async () => {
-    if (!draft) return;
-    setStatus("extracting");
-    log("Starting Phase 0 extraction...", "info");
-    log("Reading source draft...");
+  const uploadFile = async (file, field) => {
+    const formData = new FormData();
+    formData.append(field, file);
+    if (sessionId) formData.append("session_id", sessionId);
 
     try {
-      const draftText = await readDocxText(draft);
-      log(`Extracted ${draftText.length} characters from draft`);
-      log("Calling LLM API for config extraction...", "info");
-
-      const response = await fetch("http://localhost:5000/api/phase0", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        draft_text: draftText.slice(0, 12000)
-      }),
-    });
-
-    if (!response.ok) {
-      throw new Error("Phase 0 failed");
+      const resp = await fetch(`${API_BASE}/api/upload`, { method: "POST", body: formData });
+      const data = await resp.json();
+      setSessionId(data.session_id);
+      log(`Uploaded ${field}: ${file.name} (${(file.size / 1024).toFixed(1)} KB)`, "success");
+      return data;
+    } catch (e) {
+      log(`Upload failed: ${e.message}`, "error");
+      return null;
     }
+  };
 
-    const data = await response.json();
+  const handleTemplate = async (file) => { setTemplate(file); await uploadFile(file, "template"); };
+  const handleDraft = async (file) => { setDraft(file); await uploadFile(file, "draft"); };
 
-    // backend returns { config, raw, model }
-    const text = data.raw || "";
-    const config = data.config;
+  const extractConfig = async () => {
+    if (!sessionId || !draft || !template) { log("Upload both files first", "error"); return; }
+    setStatus("extracting");
+    log("Phase 0: Backend reading .docx + calling Claude 3.7 Sonnet...", "info");
 
-      log("LLM response received", "success");
+    try {
+      const resp = await fetch(`${API_BASE}/api/extract`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ session_id: sessionId }),
+      });
+      const data = await resp.json();
 
-      // Parse JSON from response
-      let parsed;
-      try {
-        const cleaned = text.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
-        parsed = JSON.parse(cleaned);
-      } catch (e) {
-        log(`JSON parse error: ${e.message}`, "error");
-        log("Raw response (first 500 chars): " + text.slice(0, 500), "error");
+      if (!resp.ok) {
+        log(`Extraction error: ${data.error}`, "error");
+        if (data.raw_response) log(`Raw: ${data.raw_response.slice(0, 300)}`, "error");
         setStatus("error");
         return;
       }
 
-      // Sanitize config
-      if (parsed.full_title && !parsed.full_title.includes("&amp;") && parsed.full_title.includes("&")) {
-        parsed.full_title = parsed.full_title.replace(/&/g, "&amp;");
-        log("Sanitized: encoded & as &amp; in full_title", "info");
-      }
-      if (parsed.short_title && !parsed.short_title.includes("&amp;") && parsed.short_title.includes("&")) {
-        parsed.short_title = parsed.short_title.replace(/&/g, "&amp;");
-        log("Sanitized: encoded & as &amp; in short_title", "info");
-      }
-      if (parsed.full_title) {
-        parsed.full_title = parsed.full_title.replace(/\n/g, " ").trim();
-      }
+      log(`Draft: ${data.draft_chars} chars extracted from .docx`, "success");
+      log(`Config: ${data.stats.total_steps} steps (ilvl0=${data.stats.ilvl0}, ilvl1=${data.stats.ilvl1}, ilvl2=${data.stats.ilvl2}), ${data.stats.highlighted} highlighted`, "success");
+      log(`Roles: ${data.stats.roles}, Guidelines: ${data.stats.guidelines}`, "success");
+      (data.issues || []).forEach(i => log(`SANITIZED: ${i}`, "info"));
+      (data.config.extraction_notes || []).forEach(n => log(`NOTE: ${n}`, "info"));
 
-      const i0 = parsed.s6_steps?.filter(s => s.ilvl === 0).length || 0;
-      const i1 = parsed.s6_steps?.filter(s => s.ilvl === 1).length || 0;
-      const i2 = parsed.s6_steps?.filter(s => s.ilvl === 2).length || 0;
-      const hl = parsed.s6_steps?.filter(s => s.highlighted).length || 0;
-      log(`Config extracted: ${parsed.s6_steps?.length || 0} steps (ilvl0=${i0}, ilvl1=${i1}, ilvl2=${i2}), ${hl} highlighted`, "success");
-      log(`Roles: ${parsed.s4_roles?.length || 0}, Guidelines: ${parsed.s7_guidelines?.length || 0}`, "success");
-
-      if (parsed.extraction_notes?.length > 0) {
-        parsed.extraction_notes.forEach(n => log(`NOTE: ${n}`, "info"));
-      }
-
-      setConfig(parsed);
+      setConfig(data.config);
       setStatus("review");
-      log("Config ready for review. Edit fields if needed, then press GENERATE.", "info");
-
+      log("Config ready for review. Edit if needed, then press GENERATE.", "info");
     } catch (e) {
       log(`Extraction failed: ${e.message}`, "error");
       setStatus("error");
@@ -383,175 +299,172 @@ export default function JennyApp() {
   };
 
   const generateSOP = async () => {
+    if (!sessionId || !config) return;
     setStatus("generating");
-    log("Phase 1+ pipeline starting...", "info");
-    log("In production: backend runs jenny_pipeline.py with this config", "info");
-    log("Config validated. Simulating pipeline execution...", "info");
+    setDownloadUrl(null);
+    setValidationResult(null);
+    log("Sending config to pipeline...", "info");
 
-    // Simulate pipeline steps (in production, this calls the real backend)
-    const steps = [
-      "Unpacking FEMA template...",
-      "Applying title replacements...",
-      "Applying purpose and scope...",
-      "Deleting template S6 content...",
-      "Inserting S6 steps with hierarchy...",
-      "Populating S4 Roles and Responsibilities...",
-      "Populating S5 Required Materials...",
-      "Populating S7 Safety Guidelines...",
-      "Inserting review flags (5 flags)...",
-      "Removing page breaks (Single Procedure)...",
-      "Removing section heading colons...",
-      "Updating header with title and date...",
-      "Populating revision history...",
-      "Running validation gate...",
-      "Packing output .docx...",
-    ];
+    try {
+      const resp = await fetch(`${API_BASE}/api/generate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ session_id: sessionId, config }),
+      });
+      const data = await resp.json();
 
-    for (const step of steps) {
-      await new Promise(r => setTimeout(r, 200 + Math.random() * 300));
-      log(step, "success");
+      if (!resp.ok || !data.success) {
+        log(`Pipeline failed: ${data.error || "Unknown error"}`, "error");
+        if (data.log) data.log.split("\n").filter(l => l.trim()).forEach(l => log(l, l.includes("[FAIL]") ? "error" : "log"));
+        setStatus("error");
+        return;
+      }
+
+      data.log.split("\n").filter(l => l.trim()).forEach(l => {
+        if (l.includes("[PASS]")) log(l.trim(), "success");
+        else if (l.includes("[FAIL]")) log(l.trim(), "error");
+        else if (l.includes("SCORE:") || l.includes("ALL CHECKS")) log(l.trim(), "success");
+        else log(l.trim());
+      });
+
+      const scoreMatch = data.score?.match(/(\d+)\/(\d+)\s*\((\d+)%\)/);
+      setValidationResult({
+        score: scoreMatch ? `${scoreMatch[1]}/${scoreMatch[2]}` : data.score,
+        pct: scoreMatch ? parseInt(scoreMatch[3]) : 0,
+        ilvl: {
+          i0: config.s6_steps?.filter(s => s.ilvl === 0).length || 0,
+          i1: config.s6_steps?.filter(s => s.ilvl === 1).length || 0,
+          i2: config.s6_steps?.filter(s => s.ilvl === 2).length || 0,
+        },
+        title: config.short_title,
+      });
+      setDownloadUrl(`${API_BASE}${data.download_url}`);
+      setStatus("complete");
+      log("SOP generated. Click DOWNLOAD to save.", "success");
+    } catch (e) {
+      log(`Generate failed: ${e.message}`, "error");
+      setStatus("error");
     }
+  };
 
-    const i0 = config.s6_steps?.filter(s => s.ilvl === 0).length || 0;
-    const i1 = config.s6_steps?.filter(s => s.ilvl === 1).length || 0;
-    const i2 = config.s6_steps?.filter(s => s.ilvl === 2).length || 0;
-
-    setValidationResult({
-      score: "77/77",
-      pct: 100,
-      ilvl: { i0, i1, i2 },
-      title: config.short_title,
-    });
-
-    setStatus("complete");
-    log(`SCORE: 77/77 (100%) -- ALL CHECKS PASSED`, "success");
-    log(`Output: ${config.short_title?.replace(/[^a-zA-Z0-9]/g, "_")}_SOP_JENNY.docx`, "success");
+  const resetAll = () => {
+    setTemplate(null); setDraft(null); setConfig(null); setStatus("idle");
+    setLogs([]); setSessionId(null); setValidationResult(null); setDownloadUrl(null);
   };
 
   return (
-    <div style={{
-      minHeight: "100vh", background: colors.bg, color: colors.text,
-      fontFamily: fontBody, padding: 0,
-    }}>
+    <div style={{ minHeight: "100vh", background: colors.bg, color: colors.text, fontFamily: fontBody }}>
       {/* Header */}
       <div style={{
         borderBottom: `1px solid ${colors.border}`, padding: "16px 32px",
         display: "flex", alignItems: "center", justifyContent: "space-between",
       }}>
         <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-          <span style={{ fontFamily: font, fontSize: 20, fontWeight: 700, color: colors.success, letterSpacing: "0.05em" }}>
-            JENNY
-          </span>
+          <span style={{ fontFamily: font, fontSize: 20, fontWeight: 700, color: colors.success, letterSpacing: "0.05em" }}>JENNY</span>
           <span style={{ fontSize: 13, color: colors.textDim }}>SOP Generator v13</span>
           <span style={{ fontSize: 11, color: colors.textDim, fontFamily: font }}>FEMA Document Automation</span>
         </div>
-        <StatusBadge status={status} />
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <StatusBadge status={status} />
+          {status !== "idle" && (
+            <button onClick={resetAll} style={{
+              padding: "4px 12px", borderRadius: 4, border: `1px solid ${colors.border}`,
+              background: "transparent", color: colors.textDim, fontFamily: font, fontSize: 11, cursor: "pointer",
+            }}>RESET</button>
+          )}
+        </div>
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "380px 1fr", minHeight: "calc(100vh - 57px)" }}>
         {/* Left Panel */}
         <div style={{ borderRight: `1px solid ${colors.border}`, padding: 24, display: "flex", flexDirection: "column", gap: 20 }}>
-          {/* Upload Section */}
           <div>
-            <div style={{ fontSize: 11, fontFamily: font, color: colors.textDim, marginBottom: 12, textTransform: "uppercase", letterSpacing: "0.1em" }}>
-              1. Upload Files
-            </div>
+            <div style={{ fontSize: 11, fontFamily: font, color: colors.textDim, marginBottom: 12, textTransform: "uppercase", letterSpacing: "0.1em" }}>1. Upload Files</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              <FileUpload label="FEMA SOP Template (.docx)" accept=".docx" onFile={setTemplate} file={template} id="template" />
-              <FileUpload label="Source SOP Draft (.docx)" accept=".docx" onFile={(f) => { setDraft(f); log(`Draft uploaded: ${f.name} (${(f.size/1024).toFixed(1)} KB)`); }} file={draft} id="draft" />
+              <FileUpload label="FEMA SOP Template (.docx)" accept=".docx" onFile={handleTemplate} file={template} id="template" />
+              <FileUpload label="Source SOP Draft (.docx)" accept=".docx" onFile={handleDraft} file={draft} id="draft" />
             </div>
           </div>
 
-          {/* Extract Button */}
           <div>
-            <div style={{ fontSize: 11, fontFamily: font, color: colors.textDim, marginBottom: 12, textTransform: "uppercase", letterSpacing: "0.1em" }}>
-              2. Extract Config
-            </div>
-            <button
-              disabled={!template || !draft || status === "extracting"}
-              onClick={extractConfig}
+            <div style={{ fontSize: 11, fontFamily: font, color: colors.textDim, marginBottom: 12, textTransform: "uppercase", letterSpacing: "0.1em" }}>2. Extract Config</div>
+            <button disabled={!template || !draft || status === "extracting"} onClick={extractConfig}
               style={{
                 width: "100%", padding: "12px 20px", borderRadius: 6, border: "none",
                 background: (!template || !draft) ? colors.surfaceAlt : colors.accent,
                 color: (!template || !draft) ? colors.textDim : "#fff",
-                fontFamily: font, fontSize: 13, fontWeight: 600, cursor: (!template || !draft) ? "default" : "pointer",
-                letterSpacing: "0.03em", transition: "all 0.2s",
-              }}
-            >
+                fontFamily: font, fontSize: 13, fontWeight: 600,
+                cursor: (!template || !draft) ? "default" : "pointer",
+                opacity: status === "extracting" ? 0.7 : 1,
+              }}>
               {status === "extracting" ? "EXTRACTING..." : "EXTRACT CONFIG"}
             </button>
+            <div style={{ fontSize: 10, color: colors.textDim, marginTop: 6, fontFamily: font }}>Claude 3.7 Sonnet via Anthropic API</div>
           </div>
 
-          {/* Generate Button */}
           <div>
-            <div style={{ fontSize: 11, fontFamily: font, color: colors.textDim, marginBottom: 12, textTransform: "uppercase", letterSpacing: "0.1em" }}>
-              3. Generate SOP
-            </div>
-            <button
-              disabled={status !== "review"}
-              onClick={generateSOP}
+            <div style={{ fontSize: 11, fontFamily: font, color: colors.textDim, marginBottom: 12, textTransform: "uppercase", letterSpacing: "0.1em" }}>3. Generate SOP</div>
+            <button disabled={status !== "review"} onClick={generateSOP}
               style={{
                 width: "100%", padding: "16px 20px", borderRadius: 6, border: "none",
                 background: status !== "review" ? colors.surfaceAlt : colors.generate,
                 color: status !== "review" ? colors.textDim : "#fff",
-                fontFamily: font, fontSize: 15, fontWeight: 700, cursor: status !== "review" ? "default" : "pointer",
-                letterSpacing: "0.05em", transition: "all 0.2s",
+                fontFamily: font, fontSize: 15, fontWeight: 700,
+                cursor: status !== "review" ? "default" : "pointer",
                 boxShadow: status === "review" ? "0 0 20px rgba(16,185,129,0.3)" : "none",
-              }}
-            >
+              }}>
               GENERATE SOP
             </button>
           </div>
 
-          {/* Validation Result */}
           {validationResult && (
             <div style={{
-              background: colors.successBg, border: `1px solid ${colors.success}`,
+              background: validationResult.pct === 100 ? colors.successBg : colors.warningBg,
+              border: `1px solid ${validationResult.pct === 100 ? colors.success : colors.warning}`,
               borderRadius: 8, padding: 16,
             }}>
-              <div style={{ fontFamily: font, fontSize: 22, color: colors.success, fontWeight: 700, marginBottom: 8 }}>
+              <div style={{ fontFamily: font, fontSize: 22, fontWeight: 700, marginBottom: 8, color: validationResult.pct === 100 ? colors.success : colors.warning }}>
                 {validationResult.score} ({validationResult.pct}%)
               </div>
-              <div style={{ fontSize: 12, color: colors.success, marginBottom: 4 }}>
-                ALL CHECKS PASSED
+              <div style={{ fontSize: 12, marginBottom: 4, color: validationResult.pct === 100 ? colors.success : colors.warning }}>
+                {validationResult.pct === 100 ? "ALL CHECKS PASSED" : "REVIEW FAILURES IN LOG"}
               </div>
               <div style={{ fontSize: 11, color: colors.textMuted, fontFamily: font }}>
                 ilvl0={validationResult.ilvl.i0} ilvl1={validationResult.ilvl.i1} ilvl2={validationResult.ilvl.i2}
               </div>
-              <div style={{ marginTop: 12, padding: "8px 12px", background: "rgba(16,185,129,0.15)", borderRadius: 4, fontSize: 12, fontFamily: font, color: colors.success }}>
-                {validationResult.title?.replace(/[^a-zA-Z0-9 ]/g, "_")}_SOP_JENNY.docx
-              </div>
+              {downloadUrl && (
+                <a href={downloadUrl} download style={{
+                  display: "block", marginTop: 12, padding: "10px 16px",
+                  background: validationResult.pct === 100 ? colors.generate : colors.warning,
+                  borderRadius: 6, textAlign: "center", textDecoration: "none",
+                  fontFamily: font, fontSize: 13, fontWeight: 700, color: "#fff",
+                }}>
+                  DOWNLOAD .DOCX
+                </a>
+              )}
             </div>
           )}
 
-          {/* Log */}
           <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 11, fontFamily: font, color: colors.textDim, marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.1em" }}>
-              Pipeline Log
-            </div>
+            <div style={{ fontSize: 11, fontFamily: font, color: colors.textDim, marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.1em" }}>Pipeline Log</div>
             <LogPanel logs={logs} />
           </div>
         </div>
 
-        {/* Right Panel - Config Editor */}
+        {/* Right Panel */}
         <div style={{ padding: 24, overflowY: "auto" }}>
           <div style={{ fontSize: 11, fontFamily: font, color: colors.textDim, marginBottom: 16, textTransform: "uppercase", letterSpacing: "0.1em" }}>
             Config Review {config ? `-- ${config.s6_steps?.length || 0} steps extracted` : ""}
           </div>
-
           {!config && (
             <div style={{
-              display: "flex", alignItems: "center", justifyContent: "center",
-              height: 400, color: colors.textDim, fontSize: 14,
-              border: `1px dashed ${colors.border}`, borderRadius: 8,
+              display: "flex", alignItems: "center", justifyContent: "center", height: 400,
+              color: colors.textDim, fontSize: 14, border: `1px dashed ${colors.border}`, borderRadius: 8,
             }}>
               Upload files and extract config to begin
             </div>
           )}
-
-          {config && (
-            <ConfigEditor config={config} onChange={handleConfigChange} />
-          )}
+          {config && <ConfigEditor config={config} onChange={handleConfigChange} />}
         </div>
       </div>
     </div>
