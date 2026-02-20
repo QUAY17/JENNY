@@ -7,9 +7,8 @@ __pycache__/
 *.so
 
 # directories 
-backend\jobs\87fe2579\unpacked\word
-backend\jobs
-backend\uploads
+backend/jobs/
+backend/uploads/
 
 # Distribution / packaging
 .Python

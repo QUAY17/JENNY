@@ -1,0 +1,50 @@
+{
+  "session_id": "9db6c1b1-ba88-4c1c-af36-9255eee22ea8",
+  "config": {
+    "author": "JENNY-v13",
+    "cover_date": "February 2026",
+    "extraction_notes": [],
+    "full_title": "Onboarding &amp; Orientation Travel Job Aid CBA RECONCILIATION",
+    "short_title": "CBA RECONCILIATION",
+    "structure_type": "single",
+    "gen_date": "02/20/2026",
+    "purpose": "Reconcile CBA charges that have not been reimbursed through Concur Travel for rescheduled/cancelled onboarding attendees being tracked by the CBA Payment Services Section.",
+    "scope": "This procedure applies to the Travel Team and Section Chief responding to monthly requests from the CBA Team to review and reconcile CBA charges not accounted for under CONCUR TAs and Vouchers.",
+    "s6_intro": "Request from CBA Team to review and reconcile all CBA charges that are not accounted for under CONCUR TAs and Vouchers",
+    "s6_steps": [
+      {"text": "Travel Team and the Section Chief are copied on the request received monthly for FIWA Outstanding CBA Charges to review", "ilvl": 0, "highlighted": false},
+      {"text": "The items that are reviewed are the following:", "ilvl": 0, "highlighted": false},
+      {"text": "Passenger (Onboarders) Last Name, First Name", "ilvl": 1, "highlighted": false},
+      {"text": "Transaction Date", "ilvl": 1, "highlighted": false},
+      {"text": "Transaction Post Date", "ilvl": 1, "highlighted": false},
+      {"text": "Authorization Number", "ilvl": 1, "highlighted": false},
+      {"text": "Transaction Reference Number", "ilvl": 1, "highlighted": false},
+      {"text": "Merchant Name e.g. Agent Fee, Hotel Charges,", "ilvl": 1, "highlighted": false},
+      {"text": "Cost", "ilvl": 1, "highlighted": false},
+      {"text": "Status", "ilvl": 1, "highlighted": false},
+      {"text": "Action/Comment", "ilvl": 1, "highlighted": false},
+      {"text": "The Travel Team reviews each listed Passenger Name first in the most updated Contact and Verification Roster to make sure the new hire did not cancel or reschedule after they made National Travel Reservations", "ilvl": 0, "highlighted": false},
+      {"text": "If the new hire did not onboard after they made National Travel Reservations, the travel team will make a note on the CBA Spreadsheet under Action/Comment stating FIWA Manual Pay (this is typically for a NT fee)", "ilvl": 1, "highlighted": false},
+      {"text": "If new hire onboarded, and they have TA/VCH for Onboarding and may have not included a National Travel Fee, the Travel Team will reach out to the new employee and have them amend their TA or we can assist with amending the TA and email the onboarder to re-sign the amended TA for processing", "ilvl": 1, "highlighted": false},
+      {"text": "If the new employee resigns after onboarding and after the CBA report is received, Travel Team could sign on behalf of the employee so the fee could be reimbursed. (highlighted to go back and review the level of detail needed here)", "ilvl": 2, "highlighted": true},
+      {"text": "Once all line items have been reviewed and Action/Comments have been updated, the Travel team will total any CITI Cost that applies and send a request to the Budget Team to make sure funds are available in IFMIS for the CBA Team to request Manual Pay for charges not paid", "ilvl": 0, "highlighted": false},
+      {"text": "The Travel Team then forwards the spreadsheet, amount, and line of accounting information to the CBA Reconciliation Team for review and action", "ilvl": 0, "highlighted": false}
+    ],
+    "s4_roles": [
+      "Travel Team: Reviews each listed Passenger Name in the Contact and Verification Roster, makes notes on the CBA Spreadsheet, reaches out to new employees to amend TAs, totals CITI Cost, sends request to Budget Team, and forwards spreadsheet and accounting information to the CBA Reconciliation Team.",
+      "Section Chief: Copied on the monthly request received for FIWA Outstanding CBA Charges to review.",
+      "CBA Payment Services Section: Tracks rescheduled/cancelled onboarding attendees and requests review and reconciliation of CBA charges not accounted for under CONCUR TAs and Vouchers.",
+      "Budget Team: Receives request from Travel Team to confirm funds are available in IFMIS for Manual Pay.",
+      "CBA Reconciliation Team: Receives spreadsheet, amount, and line of accounting information from Travel Team for review and action.",
+      "New Hire/Onboarder: Subject of CBA charge review; may be required to amend and re-sign TA for processing."
+    ],
+    "s5_materials": "Required materials and tools include: CBA Spreadsheet, Contact and Verification Roster, CONCUR Travel Authorizations and Vouchers, IFMIS, and FIWA Outstanding CBA Charges report.",
+    "s7_guidelines": [
+      "Limit access to Passenger Name information and other onboarding details used in FIWA Outstanding CBA Charges and the CBA Spreadsheet.",
+      "Document review outcomes in the CBA Spreadsheet Action/Comment field before forwarding to the CBA Reconciliation Team.",
+      "Confirm the spreadsheet amount, CITI Cost total, and line of accounting information before coordinating Manual Pay actions and before verifying funds availability in IFMIS with the Budget Team.",
+      "When a TA/VCH or amended TA requires signature, ensure the amended TA is re-signed by the new employee or onboarder prior to processing."
+    ],
+    "s3_supersession": "This document does not supersede any existing FEMA doctrine."
+  }
+}
