@@ -306,19 +306,23 @@ export default function JennyApp() {
       log(`Extracted ${draftText.length} characters from draft`);
       log("Calling LLM API for config extraction...", "info");
 
-      const response = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: "claude-sonnet-4-5-20250929",
-          max_tokens: 4000,
-          system: PHASE0_SYSTEM,
-          messages: [{ role: "user", content: PHASE0_USER(draftText.slice(0, 12000)) }],
-        }),
-      });
+      const response = await fetch("http://localhost:5000/api/phase0", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        draft_text: draftText.slice(0, 12000)
+      }),
+    });
 
-      const data = await response.json();
-      const text = data.content?.map(b => b.text || "").join("") || "";
+    if (!response.ok) {
+      throw new Error("Phase 0 failed");
+    }
+
+    const data = await response.json();
+
+    // backend returns { config, raw, model }
+    const text = data.raw || "";
+    const config = data.config;
 
       log("LLM response received", "success");
 
