@@ -4,7 +4,14 @@
 
 JENNY automates the conversion of draft SOPs into properly formatted FEMA-compliant documents. JENNY can be paired with *ANY* LLM for structured content extraction because the heavy lifting is done by the deterministic Python pipeline for template mutation, achieving 100% validation accuracy with a 77-check structural integrity gate.
 
-The JENNY pipeline approach uses roughly 10-15% of the tokens compared to monolithic AI generation, reducing token counts by 
+The JENNY pipeline approach reduces 88% token usage:
+
+- Per SOP: $1.50-$2.40 (Opus monolithic) vs $0.02-$0.05 (pipeline with Sonnet)
+- Batch of 50: $75-$120 vs $1.12-$2.48, saving $73-$118
+- Annual at 200 SOPs: $600-$960 vs $4.50-$10
+
+The comparison uses Opus pricing for monolithic because Opus is the only model that actually achieves 100%. Sonnet pricing for pipeline Phase 0 because that's what the extraction call uses. The sop generation pipeline itself is zero tokens (python code execution).
+
 ---
 
 ## Architecture
@@ -17,9 +24,9 @@ User uploads:                     Backend:                        Output:
                                   /api/download      (serve)  ---> User downloads
 ```
 
-**Phase 0 (LLM):** Any model extracts structured content from the source draft into a config dict. Hierarchy, roles, materials, and guidelines are derived from the procedure steps. The backend sanitizes the config (ampersand encoding, ilvl validation, newline stripping) before pipeline execution.
+**Phase 0 (LLM):** Any llm model can extract structured content from the source draft into a config dict. Hierarchy, roles, materials, and guidelines are derived from the procedure steps. The backend sanitizes the config (ampersand encoding, ilvl validation, newline stripping) before pipeline execution.
 
-**Phase 1+ (Deterministic):** The Python pipeline unpacks the FEMA template, performs all XML mutations from the config, inserts review flags, removes page breaks, updates headers, and validates the output against 77 structural checks. No LLM involvement. No creative decisions.
+**Phase 1+ (Deterministic):** The Python pipeline unpacks the FEMA template, performs all XML mutations from the config, inserts review flags, removes page breaks, updates headers, and validates the output against 77 structural checks. No LLM involvement.
 
 ---
 
@@ -42,6 +49,7 @@ User uploads:                     Backend:                        Output:
 - Python 3.10+
 - Node.js 18+ (frontend)
 - LLM API key*
+**or** external LLM to generate the config
 
 ### Backend
 
@@ -60,8 +68,6 @@ Server starts on `http://localhost:5000`.
 |----------|----------|-------------|
 | `ANTHROPIC_API_KEY` | No | Anthropic API key for Phase 0 extraction |
 | `OPENAI_API_KEY` | No | Open AI API key for Phase 0 extraction |
-
-
 
 ### Frontend
 
