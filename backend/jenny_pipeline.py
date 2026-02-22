@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-JENNY v13 Standalone Pipeline
+JENNY Standalone Pipeline
 Deterministic template mutation - no LLM required after Phase 0.
 
 Usage:
@@ -336,18 +336,32 @@ def run_pipeline(config, template_path, output_path, instructions_path=None):
             )
 
         new_table = tbl_props + header_row + new_rows + "</w:tbl>"
-        # Replace old table with new, keep content after table (including existing flag)
+        # Replace old table with new, always insert flag, then deduplicate
         abs_tbl_start = s4_h["end"] + tbl_start
         abs_tbl_end = s4_h["end"] + tbl_end
-        # Check if the template already has the S4 flag after the table
-        existing_flag = "Add or modify roles"
-        after_table = doc[abs_tbl_end:abs_tbl_end + 500]
-        if existing_flag in after_table:
-            # Flag already exists, don't insert another
-            doc = doc[:abs_tbl_start] + new_table + doc[abs_tbl_end:]
-        else:
-            s4_flag = build_flag("(Add or modify roles as appropriate for each department.)", pid(0xA80))
-            doc = doc[:abs_tbl_start] + new_table + s4_flag + doc[abs_tbl_end:]
+        s4_flag = build_flag("(Add or modify roles as appropriate for each department.)", pid(0xA80))
+        doc = doc[:abs_tbl_start] + new_table + s4_flag + doc[abs_tbl_end:]
+        # Remove any duplicate S4 flags between our flag and S5 heading
+        headings_post = find_fema_headings(doc)
+        s5_post = next(h for h in headings_post if "Required" in h["text"])
+        s4_to_s5 = doc[abs_tbl_start:s5_post["start"]]
+        flag_text = "Add or modify roles as appropriate for each department."
+        first_pos = s4_to_s5.find(flag_text)
+        if first_pos != -1:
+            second_start = s4_to_s5.find(flag_text, first_pos + len(flag_text))
+            if second_start != -1:
+                # Find the <w:p> containing the duplicate flag and remove it
+                # Walk back from second occurrence to find <w:p
+                region_before = s4_to_s5[:second_start]
+                p_start = region_before.rfind("<w:p ")
+                if p_start == -1:
+                    p_start = region_before.rfind("<w:p>")
+                region_after = s4_to_s5[second_start:]
+                p_end = region_after.find("</w:p>") + len("</w:p>")
+                abs_dup_start = abs_tbl_start + p_start
+                abs_dup_end = abs_tbl_start + second_start + p_end
+                doc = doc[:abs_dup_start] + doc[abs_dup_end:]
+                print("  S4: removed duplicate review flag from template")
     else:
         # Fallback: no table found, use paragraphs
         roles_xml = ""
@@ -392,10 +406,19 @@ def run_pipeline(config, template_path, output_path, instructions_path=None):
 
     # --- SECTION 2: SCOPE FLAG ---
     scope_flag = build_flag("(Add or modify scope and applicability as appropriate.)", pid(0xC00))
-    scope_idx = doc.find(scope_esc)
-    if scope_idx > -1:
-        pe = doc.find("</w:p>", scope_idx) + 6
-        doc = doc[:pe] + scope_flag + doc[pe:]
+    if scope_esc:
+        scope_idx = doc.find(scope_esc)
+        if scope_idx > -1:
+            pe = doc.find("</w:p>", scope_idx) + 6
+            doc = doc[:pe] + scope_flag + doc[pe:]
+    else:
+        # Empty scope: find S2 heading and insert flag after the empty paragraph
+        headings_s2 = find_fema_headings(doc)
+        s2_h = next((h for h in headings_s2 if "Scope" in h["text"]), None)
+        s3_h = next((h for h in headings_s2 if "Supersession" in h["text"]), None)
+        if s2_h and s3_h:
+            # Insert flag right before S3
+            doc = doc[:s3_h["start"]] + scope_flag + doc[s3_h["start"]:]
 
     # --- SECTION 7: SAFETY (use FEMABullet-1 style from template) ---
     headings = find_fema_headings(doc)
@@ -659,7 +682,7 @@ def run_pipeline(config, template_path, output_path, instructions_path=None):
 
     # === REVISION HISTORY ===
     chk("Revision", "JENNY in doc", "JENNY" in doc)
-    chk("Revision", "JENNY- author format", "JENNY-" in doc)
+    chk("Revision", "JENNY author format", "JENNY " in doc or "JENNY-" in doc)
     chk("Revision", "Version 1.0 present", "1.0" in doc)
     chk("Revision", "Initial SOP description", "Initial SOP" in doc)
 
