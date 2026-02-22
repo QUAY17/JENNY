@@ -63,7 +63,7 @@ def sanitize_config(config):
     # Validate ilvl values
     if "s6_steps" in config:
         for i, step in enumerate(config["s6_steps"]):
-            if not isinstance(step.get("ilvl"), int) or step["ilvl"] not in (0, 1, 2):
+            if not isinstance(step.get("ilvl"), int) or step["ilvl"] not in (0, 1, 2, 3):
                 config["s6_steps"][i]["ilvl"] = 0
                 issues.append(f"Reset invalid ilvl to 0 for step {i}")
             if "highlighted" not in step:
@@ -76,7 +76,7 @@ def sanitize_config(config):
 
     # Ensure required fields exist
     defaults = {
-        "author": "JENNY-v13",
+        "author": "JENNY",
         "gen_date": datetime.now().strftime("%m/%d/%Y"),
         "s3_supersession": "This document does not supersede any existing FEMA doctrine.",
         "extraction_notes": [],
@@ -111,7 +111,8 @@ def write_config_py(config, path):
                     text_esc = item["text"].replace("\\", "\\\\").replace('"', '\\"')
                     ilvl = item.get("ilvl", 0)
                     hl = item.get("highlighted", False)
-                    lines.append(f'        {{"text": "{text_esc}", "ilvl": {ilvl}, "highlighted": {hl}}},')
+                    hl_color = item.get("highlight_color", "yellow")
+                    lines.append(f'        {{"text": "{text_esc}", "ilvl": {ilvl}, "highlighted": {hl}, "highlight_color": "{hl_color}"}},')
                 lines.append("    ],")
             else:
                 # string arrays
@@ -238,7 +239,8 @@ def extract():
         "3. PRESERVE HIERARCHY - ilvl 0 = main steps (1./2./3.), ilvl 1 = sub-steps (a./b./c.), ilvl 2 = sub-sub-steps (i./ii./iii.)\n"
         "4. AMPERSAND ENCODING - Encode & as &amp; ONLY in full_title and short_title.\n"
         "5. SECTIONS 4,5,7 are DERIVED from Section 6 content only.\n"
-        "6. OUTPUT FORMAT - Return ONLY valid JSON. No markdown, no preamble, no explanation."
+        "6. OUTPUT FORMAT - Return ONLY valid JSON. No markdown, no preamble, no explanation.\n"
+        "7. If highlighted, also set \"highlight_color\" to the color name (\"yellow\", \"cyan\", etc.). Default is \"yellow\"."
     )
 
     gen_date = datetime.now().strftime("%m/%d/%Y")
@@ -250,7 +252,7 @@ def extract():
         '  "short_title": "encode & as &amp;",\n'
         '  "structure_type": "single",\n'
         '  "cover_date": "",\n'
-        '  "author": "JENNY-v13",\n'
+        '  "author": "JENNY",\n'
         f'  "gen_date": "{gen_date}",\n'
         '  "extraction_notes": [],\n'
         '  "purpose": "",\n'
@@ -314,6 +316,7 @@ def extract():
         "ilvl0": sum(1 for s in steps if s.get("ilvl") == 0),
         "ilvl1": sum(1 for s in steps if s.get("ilvl") == 1),
         "ilvl2": sum(1 for s in steps if s.get("ilvl") == 2),
+        "ilvl3": sum(1 for s in steps if s.get("ilvl") == 3),
         "highlighted": sum(1 for s in steps if s.get("highlighted")),
         "roles": len(config.get("s4_roles", [])),
         "guidelines": len(config.get("s7_guidelines", [])),
@@ -344,6 +347,7 @@ def sanitize():
         "ilvl0": sum(1 for s in steps if s.get("ilvl") == 0),
         "ilvl1": sum(1 for s in steps if s.get("ilvl") == 1),
         "ilvl2": sum(1 for s in steps if s.get("ilvl") == 2),
+        "ilvl3": sum(1 for s in steps if s.get("ilvl") == 3),
         "highlighted": sum(1 for s in steps if s.get("highlighted")),
         "roles": len(sanitized.get("s4_roles", [])),
         "guidelines": len(sanitized.get("s7_guidelines", [])),

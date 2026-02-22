@@ -361,7 +361,7 @@ export default function JennyApp() {
       }}>
         <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
           <span style={{ fontFamily: font, fontSize: 20, fontWeight: 700, color: colors.success, letterSpacing: "0.05em" }}>JENNY</span>
-          <span style={{ fontSize: 13, color: colors.textDim }}>SOP Generator v13</span>
+          {/* Left Panel <span style={{ fontSize: 13, color: colors.textDim }}>SOP Generator v13</span> */}
           <span style={{ fontSize: 11, color: colors.textDim, fontFamily: font }}>FEMA Document Automation</span>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
