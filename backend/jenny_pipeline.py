@@ -210,7 +210,27 @@ def run_pipeline(config, template_path, output_path, instructions_path=None):
     doc = doc.replace('<w:t xml:space="preserve">Enter Scope and applicability</w:t>',
                       f'<w:t xml:space="preserve">{scope_esc}</w:t>')
     # Replacement 6: Date
-    doc = doc.replace("January 2026", date_esc)
+    # Template splits "January 2026" across multiple XML runs: "January" + " 202" + "6"
+    # Try plain replace first, then handle split-run case
+    if "January 2026" in doc:
+        doc = doc.replace("January 2026", date_esc)
+    else:
+        # Find the paragraph containing the split date runs
+        # Pattern: <w:t>January</w:t> ... <w:t ...> 202</w:t><w:t>6</w:t>
+        date_pattern = re.compile(
+            r'(<w:t[^>]*>)January(</w:t>)(.*?)'
+            r'(<w:t[^>]*>)\s*202(</w:t>)(.*?)'
+            r'(<w:t[^>]*>)6(</w:t>)',
+            re.DOTALL
+        )
+        m = date_pattern.search(doc)
+        if m:
+            # Replace all three runs with the date in the first run, empty the others
+            replacement = f'{m.group(1)}{date_esc}{m.group(2)}{m.group(3)}{m.group(4)}{m.group(5)}{m.group(6)}{m.group(7)}{m.group(8)}'
+            doc = doc[:m.start()] + replacement + doc[m.end():]
+            print(f"  Cover date: replaced split-run 'January 2026' with '{date_esc}'")
+        else:
+            print("  WARNING: Could not find 'January 2026' in document (split or otherwise)")
     # Replacement 7: Remove subtitles (Single Procedure)
     # CRITICAL: Subtitles appear in BOTH the TOC (inside <w:sdt>) and the body.
     # Only remove body paragraphs. For TOC entries, leave them (Word regenerates TOC on open).

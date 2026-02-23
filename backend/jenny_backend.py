@@ -8,8 +8,7 @@ Flask API that orchestrates:
   4. Phase 1+ pipeline execution (deterministic)
   5. Output delivery (.docx download)
 """
-from dotenv import load_dotenv
-load_dotenv()
+
 import os, sys, json, shutil, tempfile, uuid, subprocess, re, traceback
 from pathlib import Path
 from datetime import datetime
@@ -205,7 +204,7 @@ def upload():
 
 @app.route("/api/extract", methods=["POST"])
 def extract():
-    """Phase 0: Extract draft text and call LLM for config generation. All server-side."""
+    """Phase 0: Load the tested Phase 0 prompt, send draft to LLM, get full config back."""
     data = request.json
     session_id = data.get("session_id")
 
@@ -219,57 +218,73 @@ def extract():
     if not ANTHROPIC_API_KEY:
         return jsonify({"error": "ANTHROPIC_API_KEY not set in environment"}), 500
 
-    # Extract text from docx
+    # ============================================================
+    # STEP 1: Load Phase 0 prompt from file
+    # ============================================================
+    prompt_path = PIPELINE_DIR / "JENNY_Phase0_Extraction_Prompt.md"
+    if not prompt_path.exists():
+        return jsonify({"error": f"Phase 0 prompt not found: {prompt_path}"}), 500
+
+    prompt_content = prompt_path.read_text(encoding="utf-8")
+    # Parse the two code blocks: system message and user message
+    blocks = re.findall(r'```\n(.*?)```', prompt_content, re.DOTALL)
+    if len(blocks) < 2:
+        return jsonify({"error": "Could not parse Phase 0 prompt (expected 2 code blocks)"}), 500
+
+    system_msg = blocks[0].strip()
+    user_msg_template = blocks[1].strip()
+
+    # ============================================================
+    # STEP 2: Extract structured text from draft .docx
+    # Include [ilvl=N] markers and [highlight=color] so the LLM
+    # has the XML context per Phase 0 prompt rule 3.
+    # ============================================================
     import zipfile
     try:
         with zipfile.ZipFile(draft_path, 'r') as z:
             xml = z.read('word/document.xml').decode('utf-8')
-        texts = re.findall(r'<w:t[^>]*>([^<]*)</w:t>', xml)
-        draft_text = "\n".join(t for t in texts if t.strip())
+
+        structured_lines = []
+        for m_para in re.finditer(r'<w:p [^>]*>(.*?)</w:p>', xml, re.DOTALL):
+            para = m_para.group(1)
+            texts = re.findall(r'<w:t[^>]*>([^<]*)</w:t>', para)
+            text = ''.join(texts).strip()
+            if not text:
+                continue
+
+            ilvl_m = re.search(r'w:ilvl w:val="(\d+)"', para)
+            hl_vals = re.findall(r'w:highlight w:val="([^"]+)"', para)
+            hl_color = hl_vals[0] if hl_vals else None
+
+            if ilvl_m:
+                ilvl = ilvl_m.group(1)
+                if hl_color:
+                    structured_lines.append(f'[ilvl={ilvl}, highlight={hl_color}] {text}')
+                else:
+                    structured_lines.append(f'[ilvl={ilvl}] {text}')
+            else:
+                if hl_color:
+                    structured_lines.append(f'[highlight={hl_color}] {text}')
+                else:
+                    structured_lines.append(text)
+
+        draft_text = "\n".join(structured_lines)
     except Exception as e:
         return jsonify({"error": f"Failed to read draft: {e}"}), 500
 
-    # Call Anthropic API
-    system_msg = (
-        "You are a document structure extractor. Your ONLY job is to read a source SOP draft "
-        "and output a JSON config. You do NOT generate documents, modify templates, write XML, "
-        "or make creative decisions.\n\n"
-        "CRITICAL RULES:\n"
-        "1. VERBATIM EXTRACTION - Copy text exactly. Do not fix spelling, grammar, capitalization, or punctuation.\n"
-        "2. NO INVENTION - Every string must trace to the source document.\n"
-        "3. PRESERVE HIERARCHY - ilvl 0 = main steps (1./2./3.), ilvl 1 = sub-steps (a./b./c.), ilvl 2 = sub-sub-steps (i./ii./iii.)\n"
-        "4. AMPERSAND ENCODING - Encode & as &amp; ONLY in full_title and short_title.\n"
-        "5. SECTIONS 4,5,7 are DERIVED from Section 6 content only.\n"
-        "6. OUTPUT FORMAT - Return ONLY valid JSON. No markdown, no preamble, no explanation.\n"
-        "7. If highlighted, also set \"highlight_color\" to the color name (\"yellow\", \"cyan\", etc.). Default is \"yellow\"."
-    )
+    # ============================================================
+    # STEP 3: Build the user message with draft text appended
+    # ============================================================
+    user_msg = user_msg_template + "\n\n--- SOURCE DRAFT CONTENT ---\n\n" + draft_text[:15000]
 
-    gen_date = datetime.now().strftime("%m/%d/%Y")
-    user_msg = (
-        f"Read this SOP draft and extract into JSON:\n\n{draft_text[:12000]}\n\n"
-        f"Return ONLY this JSON structure (no markdown fences):\n"
-        "{\n"
-        '  "full_title": "encode & as &amp;",\n'
-        '  "short_title": "encode & as &amp;",\n'
-        '  "structure_type": "single",\n'
-        '  "cover_date": "",\n'
-        '  "author": "JENNY",\n'
-        f'  "gen_date": "{gen_date}",\n'
-        '  "extraction_notes": [],\n'
-        '  "purpose": "",\n'
-        '  "scope": "",\n'
-        '  "s6_intro": "",\n'
-        '  "s6_steps": [{"text":"","ilvl":0,"highlighted":false}],\n'
-        '  "s4_roles": ["Role: Description"],\n'
-        '  "s5_materials": "Required materials and tools include: ...",\n'
-        '  "s7_guidelines": ["guideline"],\n'
-        '  "s3_supersession": "This document does not supersede any existing FEMA doctrine."\n'
-        "}"
-    )
+    # ============================================================
+    # STEP 4: Call LLM API
+    # ============================================================
+    model_used = "claude-sonnet-4-6"
 
     payload = json.dumps({
-        "model": "claude-sonnet-4-6",
-        "max_tokens": 4000,
+        "model": model_used,
+        "max_tokens": 8000,
         "system": system_msg,
         "messages": [{"role": "user", "content": user_msg}],
     }).encode("utf-8")
@@ -286,7 +301,7 @@ def extract():
     )
 
     try:
-        with urllib.request.urlopen(req, timeout=60) as resp:
+        with urllib.request.urlopen(req, timeout=90) as resp:
             resp_data = json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as e:
         body = e.read().decode("utf-8") if e.fp else ""
@@ -294,28 +309,49 @@ def extract():
     except Exception as e:
         return jsonify({"error": f"API call failed: {e}"}), 502
 
-    # Extract text from response
-    text = "".join(b.get("text", "") for b in resp_data.get("content", []))
+    # ============================================================
+    # STEP 5: Parse the Python config response
+    # The Phase 0 prompt returns a Python file, not JSON.
+    # Extract the JENNY_CONFIG dict from it.
+    # ============================================================
+    raw_text = "".join(b.get("text", "") for b in resp_data.get("content", []))
 
-    # Parse JSON
     try:
-        cleaned = text.replace("```json", "").replace("```", "").strip()
-        config = json.loads(cleaned)
-    except json.JSONDecodeError as e:
+        # Strip any markdown fences the LLM might add despite instructions
+        cleaned = raw_text.strip()
+        if cleaned.startswith("```"):
+            cleaned = re.sub(r'^```\w*\n', '', cleaned)
+            cleaned = re.sub(r'\n```\s*$', '', cleaned)
+
+        # Execute the Python to get JENNY_CONFIG
+        namespace = {}
+        exec(cleaned, namespace)
+        config = namespace.get("JENNY_CONFIG")
+        if not config:
+            return jsonify({
+                "error": "No JENNY_CONFIG found in LLM response",
+                "raw_response": raw_text[:2000],
+            }), 422
+    except Exception as e:
         return jsonify({
-            "error": f"JSON parse failed: {e}",
-            "raw_response": text[:2000],
+            "error": f"Failed to parse config: {e}",
+            "raw_response": raw_text[:2000],
         }), 422
-    
-    # Set author from model used
-    model_name = "claude-sonnet-4-6"  
-    model_label = model_name.replace("claude-", "").replace("-", " ").title()
+
+    # ============================================================
+    # STEP 6: Set author from model used
+    # ============================================================
+    model_label = model_used.replace("claude-", "").replace("-", " ").title()
     config["author"] = f"JENNY {model_label}"
 
-    # Sanitize
+    # ============================================================
+    # STEP 7: Sanitize
+    # ============================================================
     config, issues = sanitize_config(config)
 
-    # Stats
+    # ============================================================
+    # STEP 8: Return config + stats
+    # ============================================================
     steps = config.get("s6_steps", [])
     stats = {
         "total_steps": len(steps),
@@ -333,7 +369,7 @@ def extract():
         "issues": issues,
         "stats": stats,
         "draft_chars": len(draft_text),
-        "model": model_name,
+        "model": model_used,
     })
 
 

@@ -107,26 +107,52 @@ function ConfigEditor({ config, onChange }) {
     const pathStr = fullPath.join(".");
 
     if (Array.isArray(value) && value.length > 0 && typeof value[0] === "object" && value[0].text !== undefined) {
+      const ilvlLabels = {
+        0: "1. 2. 3.",
+        1: "a. b. c.",
+        2: "i. ii. iii.",
+        3: "1) 2) 3)",
+      };
+      const ilvlNames = {
+        0: "Main Step",
+        1: "Sub-step",
+        2: "Sub-sub",
+        3: "Sub-sub-sub",
+      };
       return (
         <div key={pathStr} style={{ marginBottom: 16 }}>
           <label style={{ display: "block", fontSize: 11, fontFamily: font, color: colors.accent, marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.05em" }}>
             {key} ({value.length} steps)
           </label>
-          <div style={{ maxHeight: 250, overflowY: "auto", border: `1px solid ${colors.border}`, borderRadius: 6, padding: 8 }}>
-            {value.map((step, i) => (
+          <div style={{ fontSize: 10, fontFamily: font, color: colors.textDim, marginBottom: 6 }}>
+            Indent levels: 1. 2. 3. = Main Step | a. b. c. = Sub-step | i. ii. iii. = Sub-sub | 1) 2) 3) = Sub-sub-sub
+          </div>
+          <div style={{ maxHeight: 300, overflowY: "auto", border: `1px solid ${colors.border}`, borderRadius: 6, padding: 8 }}>
+            {value.map((step, i) => {
+              const hlColor = step.highlight_color || "yellow";
+              const isHighlighted = step.highlighted;
+              const hlBorder = isHighlighted
+                ? (hlColor === "cyan" ? "#06b6d4" : colors.warning)
+                : colors.border;
+              const hlBg = isHighlighted
+                ? (hlColor === "cyan" ? "rgba(6,182,212,0.1)" : "rgba(245,158,11,0.1)")
+                : colors.surfaceAlt;
+              return (
               <div key={i} style={{
-                display: "grid", gridTemplateColumns: "40px 1fr 50px",
+                display: "grid", gridTemplateColumns: "70px 1fr 90px",
                 gap: 6, marginBottom: 4, alignItems: "start",
                 paddingLeft: step.ilvl * 20,
               }}>
-                <span style={{ fontSize: 10, fontFamily: font, color: colors.textDim, paddingTop: 6 }}>
-                  L{step.ilvl}{step.highlighted ? "*" : ""}
+                <span style={{
+                  fontSize: 10, fontFamily: font, color: isHighlighted ? hlBorder : colors.textDim,
+                  paddingTop: 6, fontWeight: isHighlighted ? 600 : 400,
+                }}>
+                  {ilvlNames[step.ilvl] || "?"}{isHighlighted ? ` [${hlColor}]` : ""}
                 </span>
                 <input style={{
-                  width: "100%", padding: "4px 8px", background: colors.surfaceAlt,
-                  border: `1px solid ${colors.border}`, borderRadius: 4, color: colors.text,
+                  width: "100%", padding: "4px 8px", background: hlBg,
+                  border: `1px solid ${hlBorder}`, borderRadius: 4, color: colors.text,
                   fontFamily: fontBody, fontSize: 12,
-                  ...(step.highlighted ? { borderColor: colors.warning, background: "rgba(245,158,11,0.1)" } : {}),
                 }}
                   value={step.text}
                   onChange={(e) => {
@@ -146,12 +172,14 @@ function ConfigEditor({ config, onChange }) {
                     onChange(fullPath, newSteps);
                   }}
                 >
-                  <option value={0}>L0</option>
-                  <option value={1}>L1</option>
-                  <option value={2}>L2</option>
+                  <option value={0}>1. 2. 3. (Main)</option>
+                  <option value={1}>a. b. c. (Sub)</option>
+                  <option value={2}>i. ii. iii. (Sub-sub)</option>
+                  <option value={3}>1) 2) 3) (Sub-sub-sub)</option>
                 </select>
               </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       );
@@ -276,8 +304,9 @@ export default function JennyApp() {
 
       log(`Draft: ${data.draft_chars} chars extracted from .docx`, "success");
       const s = data.stats;
-      const ilvlStr = `ilvl0=${s.ilvl0}, ilvl1=${s.ilvl1}, ilvl2=${s.ilvl2}${s.ilvl3 ? `, ilvl3=${s.ilvl3}` : ""}`;
-      log(`Config: ${s.total_steps} steps (${ilvlStr}), ${s.highlighted} highlighted`, "success");
+      const ilvlParts = [`Main(1.2.3.)=${s.ilvl0}`, `Sub(a.b.c.)=${s.ilvl1}`, `Sub-sub(i.ii.)=${s.ilvl2}`];
+      if (s.ilvl3) ilvlParts.push(`Sub-sub-sub=${s.ilvl3}`);
+      log(`Config: ${s.total_steps} steps (${ilvlParts.join(", ")}), ${s.highlighted} highlighted`, "success");
       log(`Roles: ${s.roles}, Guidelines: ${s.guidelines}`, "success");
       if (data.model) {
         setModelLabel(data.model);
@@ -342,6 +371,7 @@ export default function JennyApp() {
           i0: config.s6_steps?.filter(s => s.ilvl === 0).length || 0,
           i1: config.s6_steps?.filter(s => s.ilvl === 1).length || 0,
           i2: config.s6_steps?.filter(s => s.ilvl === 2).length || 0,
+          i3: config.s6_steps?.filter(s => s.ilvl === 3).length || 0,
         },
         title: config.short_title,
       });
@@ -436,7 +466,7 @@ export default function JennyApp() {
                 {validationResult.pct === 100 ? "ALL CHECKS PASSED" : "REVIEW FAILURES IN LOG"}
               </div>
               <div style={{ fontSize: 11, color: colors.textMuted, fontFamily: font }}>
-                ilvl0={validationResult.ilvl.i0} ilvl1={validationResult.ilvl.i1} ilvl2={validationResult.ilvl.i2}
+                Main Steps (1.2.3.): {validationResult.ilvl.i0} | Sub (a.b.c.): {validationResult.ilvl.i1} | Sub-sub (i.ii.iii.): {validationResult.ilvl.i2}{validationResult.ilvl.i3 ? ` | Sub-sub-sub: ${validationResult.ilvl.i3}` : ""}
               </div>
               {downloadUrl && (
                 <a href={downloadUrl} download style={{

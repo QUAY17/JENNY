@@ -15,11 +15,12 @@ CRITICAL RULES -- VIOLATIONS CAUSE PIPELINE FAILURE:
 
 3. PRESERVE HIERARCHY. The ilvl (indentation level) of each step must reflect the source document's structure:
    - If the source has XML numbering (<w:numPr><w:ilvl w:val="X">), use that value directly.
-   - If the source has no XML numbering, infer from list markers: 1./2./3. = ilvl 0, a./b./c. = ilvl 1, i./ii./iii. = ilvl 2.
+   - If the source has no XML numbering, infer from list markers: 1./2./3. = ilvl 0, a./b./c. = ilvl 1, i./ii./iii. = ilvl 2. Fourth level repeats decimal: 1./2./3. under iii. = ilvl 3.
    - If the source uses bullet indentation without numbering, infer from visual nesting depth.
+   - Nesting can go up to 4 levels deep (ilvl 0 through ilvl 3). Not every SOP uses all 4 levels.
    - When in doubt, default to ilvl 0. Do NOT guess ilvl 1 or 2 without evidence.
 
-4. HIGHLIGHTED STEPS. If the source contains yellow highlighting on a step (indicating "needs review"), set "highlighted": True for that step. If you cannot determine highlighting from the source format, set all to False and add an extraction_note.
+4. HIGHLIGHTED STEPS. If the source contains highlighting on a step (yellow, cyan, or other colors indicating "needs review"), set "highlighted": True and "highlight_color" to the color name (e.g., "yellow", "cyan"). If you cannot determine highlighting from the source format, set highlighted to False and highlight_color to "yellow" (default), and add an extraction_note.
 
 5. AMPERSAND ENCODING. If a title contains "&", encode it as "&amp;" in full_title and short_title. This is required because the pipeline inserts these values into XML. Example: "Onboarding & Orientation" becomes "Onboarding &amp; Orientation". Do NOT encode ampersands in purpose, scope, steps, roles, materials, or guidelines -- only in full_title and short_title.
 
@@ -71,8 +72,8 @@ JENNY_CONFIG = {
     "s6_intro": "",            # Text before Step 1 that has no numbering. Empty string if none.
 
     "s6_steps": [
-        # {"text": "Step text verbatim", "ilvl": 0, "highlighted": False},
-        # {"text": "Sub-step text verbatim", "ilvl": 1, "highlighted": False},
+        # {"text": "Step text verbatim", "ilvl": 0, "highlighted": False, "highlight_color": "yellow"},
+        # {"text": "Sub-step text verbatim", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
     ],
 
     "s4_roles": [
@@ -113,23 +114,23 @@ JENNY_CONFIG = {
     "s6_intro": "Request from CBA Team to review and reconcile all CBA charges that are not accounted for under CONCUR TAs and Vouchers",
 
     "s6_steps": [
-        {"text": "Travel Team and the Section Chief are copied on the request received monthly for FIWA Outstanding CBA Charges to review", "ilvl": 0, "highlighted": False},
-        {"text": "The items that are reviewed are the following:", "ilvl": 0, "highlighted": False},
-        {"text": "Passenger (Onboarders) Last Name, First Name", "ilvl": 1, "highlighted": False},
-        {"text": "Transaction Date", "ilvl": 1, "highlighted": False},
-        {"text": "Transaction Post Date", "ilvl": 1, "highlighted": False},
-        {"text": "Authorization Number", "ilvl": 1, "highlighted": False},
-        {"text": "Transaction Reference Number", "ilvl": 1, "highlighted": False},
-        {"text": "Merchant Name e.g. Agent Fee, Hotel Charges,", "ilvl": 1, "highlighted": False},
-        {"text": "Cost", "ilvl": 1, "highlighted": False},
-        {"text": "Status", "ilvl": 1, "highlighted": False},
-        {"text": "Action/Comment", "ilvl": 1, "highlighted": False},
-        {"text": "The Travel Team reviews each listed Passenger Name first in the most updated Contact and Verification Roster to make sure the new hire did not cancel or reschedule after they made National Travel Reservations", "ilvl": 0, "highlighted": False},
-        {"text": "If the new hire did not onboard after they made National Travel Reservations, the travel team will make a note on the CBA Spreadsheet under Action/Comment stating FIWA Manual Pay (this is typically for a NT fee)", "ilvl": 1, "highlighted": False},
-        {"text": "If new hire onboarded, and they have TA/VCH for Onboarding and may have not included a National Travel Fee, the Travel Team will reach out to the new employee and have them amend their TA or we can assist with amending the TA and email the onboarder to re-sign the amended TA for processing", "ilvl": 1, "highlighted": False},
-        {"text": "If the new employee resigns after onboarding and after the CBA report is received, Travel Team could sign on behalf of the employee so the fee could be reimbursed. (highlighted to go back and review the level of detail needed here)", "ilvl": 2, "highlighted": True},
-        {"text": "Once all line items have been reviewed and Action/Comments have been updated, the Travel team will total any CITI Cost that applies and send a request to the Budget Team to make sure funds are available in IFMIS for the CBA Team to request Manual Pay for charges not paid", "ilvl": 0, "highlighted": False},
-        {"text": "The Travel Team then forwards the spreadsheet, amount, and line of accounting information to the CBA Reconciliation Team for review and action", "ilvl": 0, "highlighted": False},
+        {"text": "Travel Team and the Section Chief are copied on the request received monthly for FIWA Outstanding CBA Charges to review", "ilvl": 0, "highlighted": False, "highlight_color": "yellow"},
+        {"text": "The items that are reviewed are the following:", "ilvl": 0, "highlighted": False, "highlight_color": "yellow"},
+        {"text": "Passenger (Onboarders) Last Name, First Name", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+        {"text": "Transaction Date", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+        {"text": "Transaction Post Date", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+        {"text": "Authorization Number", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+        {"text": "Transaction Reference Number", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+        {"text": "Merchant Name e.g. Agent Fee, Hotel Charges,", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+        {"text": "Cost", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+        {"text": "Status", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+        {"text": "Action/Comment", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+        {"text": "The Travel Team reviews each listed Passenger Name first in the most updated Contact and Verification Roster to make sure the new hire did not cancel or reschedule after they made National Travel Reservations", "ilvl": 0, "highlighted": False, "highlight_color": "yellow"},
+        {"text": "If the new hire did not onboard after they made National Travel Reservations, the travel team will make a note on the CBA Spreadsheet under Action/Comment stating FIWA Manual Pay (this is typically for a NT fee)", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+        {"text": "If new hire onboarded, and they have TA/VCH for Onboarding and may have not included a National Travel Fee, the Travel Team will reach out to the new employee and have them amend their TA or we can assist with amending the TA and email the onboarder to re-sign the amended TA for processing", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+        {"text": "If the new employee resigns after onboarding and after the CBA report is received, Travel Team could sign on behalf of the employee so the fee could be reimbursed. (highlighted to go back and review the level of detail needed here)", "ilvl": 2, "highlighted": True, "highlight_color": "yellow"},
+        {"text": "Once all line items have been reviewed and Action/Comments have been updated, the Travel team will total any CITI Cost that applies and send a request to the Budget Team to make sure funds are available in IFMIS for the CBA Team to request Manual Pay for charges not paid", "ilvl": 0, "highlighted": False, "highlight_color": "yellow"},
+        {"text": "The Travel Team then forwards the spreadsheet, amount, and line of accounting information to the CBA Reconciliation Team for review and action", "ilvl": 0, "highlighted": False, "highlight_color": "yellow"},
     ],
 
     "s4_roles": [
