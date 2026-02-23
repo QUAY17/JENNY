@@ -8,7 +8,8 @@ Flask API that orchestrates:
   4. Phase 1+ pipeline execution (deterministic)
   5. Output delivery (.docx download)
 """
-
+from dotenv import load_dotenv
+load_dotenv()
 import os, sys, json, shutil, tempfile, uuid, subprocess, re, traceback
 from pathlib import Path
 from datetime import datetime

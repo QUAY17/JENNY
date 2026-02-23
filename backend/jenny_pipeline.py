@@ -98,18 +98,19 @@ def pid(n):
     """Generate a paraId from an integer."""
     return f"1A{n:06X}"
 
-def build_paragraph(text, para_id, ilvl=None, highlighted=False, style="FEMANormal", num_id="42"):
+def build_paragraph(text, para_id, ilvl=None, highlighted=False, highlight_color="yellow", style="FEMANormal", num_id="42"):
     """Build a single OOXML paragraph."""
     t = xml_escape(text)
+    hl_color = highlight_color if highlighted else "yellow"
     ppr = f'<w:pPr><w:pStyle w:val="{style}"/>'
     if ilvl is not None:
         ppr += f'<w:numPr><w:ilvl w:val="{ilvl}"/><w:numId w:val="{num_id}"/></w:numPr>'
     if highlighted:
-        ppr += '<w:rPr><w:highlight w:val="yellow"/></w:rPr>'
+        ppr += f'<w:rPr><w:highlight w:val="{hl_color}"/></w:rPr>'
     ppr += '</w:pPr>'
     rpr = '<w:rPr><w:rFonts w:ascii="Franklin Gothic Book" w:hAnsi="Franklin Gothic Book"/>'
     if highlighted:
-        rpr += '<w:highlight w:val="yellow"/>'
+        rpr += f'<w:highlight w:val="{hl_color}"/>'
     rpr += '</w:rPr>'
     return (
         f'<w:p w14:paraId="{para_id}" w14:textId="{para_id}" '
@@ -253,11 +254,12 @@ def run_pipeline(config, template_path, output_path, instructions_path=None):
     BASELINE_ILVL0 = before.count('w:ilvl w:val="0"') + after.count('w:ilvl w:val="0"')
     BASELINE_ILVL1 = before.count('w:ilvl w:val="1"') + after.count('w:ilvl w:val="1"')
     BASELINE_ILVL2 = before.count('w:ilvl w:val="2"') + after.count('w:ilvl w:val="2"')
+    BASELINE_ILVL3 = before.count('w:ilvl w:val="3"') + after.count('w:ilvl w:val="3"')
 
     # Hard delete
     doc = before + after
     insert_at = len(before)
-    print(f"S6 deleted. Baseline ilvl: 0={BASELINE_ILVL0}, 1={BASELINE_ILVL1}, 2={BASELINE_ILVL2}")
+    print(f"S6 deleted. Baseline ilvl: 0={BASELINE_ILVL0}, 1={BASELINE_ILVL1}, 2={BASELINE_ILVL2}, 3={BASELINE_ILVL3}")
 
     # Build S6 content
     s6_xml = ""
@@ -269,22 +271,24 @@ def run_pipeline(config, template_path, output_path, instructions_path=None):
         p_counter += 1
 
     # Steps
-    src_ilvl0 = src_ilvl1 = src_ilvl2 = 0
+    src_ilvl0 = src_ilvl1 = src_ilvl2 = src_ilvl3 = 0
     src_highlights = 0
     for step in cfg["s6_steps"]:
         s6_xml += build_paragraph(
             step["text"], pid(p_counter),
             ilvl=step["ilvl"],
-            highlighted=step.get("highlighted", False)
+            highlighted=step.get("highlighted", False),
+            highlight_color=step.get("highlight_color", "yellow")
         )
         if step["ilvl"] == 0: src_ilvl0 += 1
         elif step["ilvl"] == 1: src_ilvl1 += 1
         elif step["ilvl"] == 2: src_ilvl2 += 1
+        elif step["ilvl"] == 3: src_ilvl3 += 1
         if step.get("highlighted"): src_highlights += 1
         p_counter += 1
 
     doc = doc[:insert_at] + s6_xml + doc[insert_at:]
-    print(f"S6 inserted. Source ilvl: 0={src_ilvl0}, 1={src_ilvl1}, 2={src_ilvl2}, highlights={src_highlights}")
+    print(f"S6 inserted. Source ilvl: 0={src_ilvl0}, 1={src_ilvl1}, 2={src_ilvl2}, 3={src_ilvl3}, highlights={src_highlights}")
     try:
         ET.fromstring(doc.encode("utf-8"))
     except ET.ParseError as e:
@@ -602,27 +606,35 @@ def run_pipeline(config, template_path, output_path, instructions_path=None):
         ri0 = s6_region.count('w:ilvl w:val="0"')
         ri1 = s6_region.count('w:ilvl w:val="1"')
         ri2 = s6_region.count('w:ilvl w:val="2"')
+        ri3 = s6_region.count('w:ilvl w:val="3"')
         chk("S6", f"S6 ilvl0={ri0} == source={src_ilvl0}", ri0 == src_ilvl0)
         chk("S6", f"S6 ilvl1={ri1} == source={src_ilvl1}", ri1 == src_ilvl1)
         chk("S6", f"S6 ilvl2={ri2} == source={src_ilvl2}", ri2 == src_ilvl2)
+        if src_ilvl3 > 0:
+            chk("S6", f"S6 ilvl3={ri3} == source={src_ilvl3}", ri3 == src_ilvl3)
         chk("S6", "Not flattened (ilvl1 > 0)", ri1 > 0 or src_ilvl1 == 0)
 
         # Whole-document ilvl totals
         fi0 = doc.count('w:ilvl w:val="0"')
         fi1 = doc.count('w:ilvl w:val="1"')
         fi2 = doc.count('w:ilvl w:val="2"')
+        fi3 = doc.count('w:ilvl w:val="3"')
         chk("S6", f"Total ilvl0: {fi0} == {BASELINE_ILVL0 + src_ilvl0}", fi0 == BASELINE_ILVL0 + src_ilvl0)
         chk("S6", f"Total ilvl1: {fi1} == {BASELINE_ILVL1 + src_ilvl1}", fi1 == BASELINE_ILVL1 + src_ilvl1)
         chk("S6", f"Total ilvl2: {fi2} == {BASELINE_ILVL2 + src_ilvl2}", fi2 == BASELINE_ILVL2 + src_ilvl2)
+        if src_ilvl3 > 0:
+            chk("S6", f"Total ilvl3: {fi3} == {BASELINE_ILVL3 + src_ilvl3}", fi3 == BASELINE_ILVL3 + src_ilvl3)
 
         # Key content phrases (first 8 steps)
         for step in cfg["s6_steps"][:8]:
             phrase = step["text"][:45]
             chk("S6", f"Contains '{phrase}'", step["text"][:30] in s6_region)
 
-        # Highlighted steps
-        hl_ct = s6_region.count('<w:highlight w:val="yellow"/>')
-        eff_hl = hl_ct // 2
+        # Highlighted steps (count all highlight colors: yellow, cyan, etc.)
+        import re as _re
+        hl_matches = _re.findall(r'<w:highlight w:val="[^"]+"/>', s6_region)
+        # Each highlighted step has 2 highlight tags (pPr + rPr), so divide by 2
+        eff_hl = len(hl_matches) // 2
         chk("S6", f"Highlights: {eff_hl} == {src_highlights}", eff_hl == src_highlights)
 
         # Intro paragraph

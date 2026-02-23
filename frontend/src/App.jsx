@@ -227,6 +227,7 @@ export default function JennyApp() {
   const [sessionId, setSessionId] = useState(null);
   const [validationResult, setValidationResult] = useState(null);
   const [downloadUrl, setDownloadUrl] = useState(null);
+  const [modelLabel, setModelLabel] = useState("");
 
   const log = useCallback((msg, type = "log") => {
     const time = new Date().toLocaleTimeString("en-US", { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" });
@@ -256,7 +257,7 @@ export default function JennyApp() {
   const extractConfig = async () => {
     if (!sessionId || !draft || !template) { log("Upload both files first", "error"); return; }
     setStatus("extracting");
-    log("Phase 0: Backend reading .docx + calling Claude 3.7 Sonnet...", "info");
+    log("Phase 0: Backend reading .docx + calling LLM for extraction...", "info");
 
     try {
       const resp = await fetch(`${API_BASE}/api/extract`, {
@@ -274,8 +275,14 @@ export default function JennyApp() {
       }
 
       log(`Draft: ${data.draft_chars} chars extracted from .docx`, "success");
-      log(`Config: ${data.stats.total_steps} steps (ilvl0=${data.stats.ilvl0}, ilvl1=${data.stats.ilvl1}, ilvl2=${data.stats.ilvl2}), ${data.stats.highlighted} highlighted`, "success");
-      log(`Roles: ${data.stats.roles}, Guidelines: ${data.stats.guidelines}`, "success");
+      const s = data.stats;
+      const ilvlStr = `ilvl0=${s.ilvl0}, ilvl1=${s.ilvl1}, ilvl2=${s.ilvl2}${s.ilvl3 ? `, ilvl3=${s.ilvl3}` : ""}`;
+      log(`Config: ${s.total_steps} steps (${ilvlStr}), ${s.highlighted} highlighted`, "success");
+      log(`Roles: ${s.roles}, Guidelines: ${s.guidelines}`, "success");
+      if (data.model) {
+        setModelLabel(data.model);
+        log(`Model: ${data.model}`, "info");
+      }
       (data.issues || []).forEach(i => log(`SANITIZED: ${i}`, "info"));
       (data.config.extraction_notes || []).forEach(n => log(`NOTE: ${n}`, "info"));
 
@@ -349,7 +356,7 @@ export default function JennyApp() {
 
   const resetAll = () => {
     setTemplate(null); setDraft(null); setConfig(null); setStatus("idle");
-    setLogs([]); setSessionId(null); setValidationResult(null); setDownloadUrl(null);
+    setLogs([]); setSessionId(null); setValidationResult(null); setDownloadUrl(null); setModelLabel("");
   };
 
   return (
@@ -361,7 +368,6 @@ export default function JennyApp() {
       }}>
         <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
           <span style={{ fontFamily: font, fontSize: 20, fontWeight: 700, color: colors.success, letterSpacing: "0.05em" }}>JENNY</span>
-          <span style={{ fontSize: 13, color: colors.textDim }}>SOP Generator v13</span>
           <span style={{ fontSize: 11, color: colors.textDim, fontFamily: font }}>FEMA Document Automation</span>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
@@ -399,7 +405,7 @@ export default function JennyApp() {
               }}>
               {status === "extracting" ? "EXTRACTING..." : "EXTRACT CONFIG"}
             </button>
-            <div style={{ fontSize: 10, color: colors.textDim, marginTop: 6, fontFamily: font }}>Claude 3.7 Sonnet via Anthropic API</div>
+            <div style={{ fontSize: 10, color: colors.textDim, marginTop: 6, fontFamily: font }}>{modelLabel ? `Model: ${modelLabel}` : "Calls LLM via Anthropic API"}</div>
           </div>
 
           <div>
