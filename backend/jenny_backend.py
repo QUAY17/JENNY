@@ -305,6 +305,11 @@ def extract():
             "error": f"JSON parse failed: {e}",
             "raw_response": text[:2000],
         }), 422
+    
+    # Set author from model used
+    model_name = "claude-sonnet-4-6"  
+    model_label = model_name.replace("claude-", "").replace("-", " ").title()
+    config["author"] = f"JENNY {model_label}"
 
     # Sanitize
     config, issues = sanitize_config(config)
@@ -327,6 +332,7 @@ def extract():
         "issues": issues,
         "stats": stats,
         "draft_chars": len(draft_text),
+        "model": model_name,
     })
 
 
@@ -354,7 +360,7 @@ def sanitize():
     }
 
     return jsonify({
-        "config": sanitized,
+        "config": config,
         "issues": issues,
         "stats": stats,
     })
