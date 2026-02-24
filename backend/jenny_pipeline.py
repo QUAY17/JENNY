@@ -6,6 +6,7 @@ Deterministic template mutation - no LLM required after Phase 0.
 Usage:
   1. An LLM (any model) fills out jenny_config.py by reading the source draft
   2. Run: python jenny_pipeline.py jenny_config.py TEMPLATE.docx OUTPUT.docx [INSTRUCTIONS.md]
+
 The pipeline:
   - Extracts unpack/pack scripts from v13 instructions (or uses built-in fallback)
   - Unpacks the template
@@ -209,27 +210,41 @@ def run_pipeline(config, template_path, output_path, instructions_path=None):
     doc = doc.replace('<w:t xml:space="preserve">Enter Scope and applicability</w:t>',
                       f'<w:t xml:space="preserve">{scope_esc}</w:t>')
     # Replacement 6: Date
-    # Template splits "January 2026" across multiple XML runs: "January" + " 202" + "6"
-    # Try plain replace first, then handle split-run case
-    if "January 2026" in doc:
-        doc = doc.replace("January 2026", date_esc)
-    else:
-        # Find the paragraph containing the split date runs
-        # Pattern: <w:t>January</w:t> ... <w:t ...> 202</w:t><w:t>6</w:t>
-        date_pattern = re.compile(
-            r'(<w:t[^>]*>)January(</w:t>)(.*?)'
-            r'(<w:t[^>]*>)\s*202(</w:t>)(.*?)'
-            r'(<w:t[^>]*>)6(</w:t>)',
-            re.DOTALL
-        )
-        m = date_pattern.search(doc)
-        if m:
-            # Replace all three runs with the date in the first run, empty the others
-            replacement = f'{m.group(1)}{date_esc}{m.group(2)}{m.group(3)}{m.group(4)}{m.group(5)}{m.group(6)}{m.group(7)}{m.group(8)}'
-            doc = doc[:m.start()] + replacement + doc[m.end():]
-            print(f"  Cover date: replaced split-run 'January 2026' with '{date_esc}'")
-        else:
-            print("  WARNING: Could not find 'January 2026' in document (split or otherwise)")
+    # Template may have any "Month YYYY" string (e.g., "January 2026", "July 2025")
+    # Try to find and replace it. Also handle split-run case.
+    months = ["January","February","March","April","May","June",
+              "July","August","September","October","November","December"]
+    template_date_found = False
+    for month in months:
+        for year in ["2024","2025","2026","2027"]:
+            old_date = f"{month} {year}"
+            if old_date in doc:
+                doc = doc.replace(old_date, date_esc)
+                print(f"  Cover date: replaced '{old_date}' with '{date_esc}'")
+                template_date_found = True
+                break
+        if template_date_found:
+            break
+
+    if not template_date_found:
+        # Handle split-run case: month in one run, year split across others
+        for month in months:
+            date_pattern = re.compile(
+                r'(<w:t[^>]*>)' + month + r'(</w:t>)(.*?)'
+                r'(<w:t[^>]*>)\s*\d{3}(</w:t>)(.*?)'
+                r'(<w:t[^>]*>)\d(</w:t>)',
+                re.DOTALL
+            )
+            m = date_pattern.search(doc)
+            if m:
+                replacement = f'{m.group(1)}{date_esc}{m.group(2)}{m.group(3)}{m.group(4)}{m.group(5)}{m.group(6)}{m.group(7)}{m.group(8)}'
+                doc = doc[:m.start()] + replacement + doc[m.end():]
+                print(f"  Cover date: replaced split-run '{month} 20XX' with '{date_esc}'")
+                template_date_found = True
+                break
+
+    if not template_date_found:
+        print("  WARNING: Could not find any 'Month YYYY' date in document")
     # Replacement 7: Remove subtitles (Single Procedure)
     # CRITICAL: Subtitles appear in BOTH the TOC (inside <w:sdt>) and the body.
     # Only remove body paragraphs. For TOC entries, leave them (Word regenerates TOC on open).
@@ -574,8 +589,18 @@ def run_pipeline(config, template_path, output_path, instructions_path=None):
     # === PLACEHOLDERS ===
     for p in ["Enter Title (Step-by-Step", "<w:t>Enter Title</w:t>",
               "<w:t>Enter Purpose</w:t>", "Enter Scope", "Enter Subtitle",
-              "January 2026", "MM/DD/YYYY", "<w:t>X.0</w:t>"]:
+              "MM/DD/YYYY", "<w:t>X.0</w:t>"]:
         chk("Placeholders", f"No '{p[:40]}'", p not in doc)
+    # Check that no template date remains in the HEADER
+    template_months = ["January","February","March","April","May","June",
+                       "July","August","September","October","November","December"]
+    config_date = cfg.get("cover_date", "")
+    hdr_text_all = "".join(re.findall(r'<w:t[^>]*>([^<]*)</w:t>', hdr))
+    for mo in template_months:
+        for yr in ["2024","2025","2026","2027"]:
+            old = f"{mo} {yr}"
+            if old != config_date and old in hdr_text_all:
+                chk("Placeholders", f"No template date '{old}' in header", False)
     chk("Placeholders", "No 'Enter' in header", "Enter" not in hdr)
 
     # === HEADER ===
@@ -663,6 +688,23 @@ def run_pipeline(config, template_path, output_path, instructions_path=None):
     else:
         chk("S6", "S6/S7 boundaries found", False)
 
+    # === INTELLIGENT COMPLETION: S2 (Scope) ===
+    s2_hv = next((h for h in headings if "Scope" in h["text"]), None)
+    s3_hv = next((h for h in headings if "Supersession" in h["text"]), None)
+    if s2_hv and s3_hv:
+        s2r = doc[s2_hv["end"]:s3_hv["start"]]
+        s2t = [t.strip() for t in re.findall(r'<w:t[^>]*>([^<]+)</w:t>', s2r)
+               if t.strip() and t.strip() not in ["2.", "3.", "Scope and Applicability",
+                                                    "Supersession"]]
+        # Filter out just the review flag text
+        s2t = [t for t in s2t if not t.startswith("(Add or modify")]
+        has_scope = bool(cfg.get("scope", "").strip())
+        if has_scope:
+            chk("IC", f"S2 scope populated ({len(s2t)} items)", len(s2t) > 0)
+            chk("IC", "S2 scope has substantive content", len("".join(s2t)) > 20)
+        else:
+            chk("IC", "S2 scope empty (review flag inserted)", True)
+
     # === INTELLIGENT COMPLETION: S4 ===
     s4_hv2 = next((h for h in headings if "Roles" in h["text"]), None)
     s5_hv2 = next((h for h in headings if "Required" in h["text"]), None)
@@ -684,6 +726,28 @@ def run_pipeline(config, template_path, output_path, instructions_path=None):
                if t.strip() and t.strip() not in ["5.", "6.", "Required Materials and Tools"]]
         chk("IC", f"S5 populated ({len(s5t)} items)", len(s5t) > 0)
         chk("IC", "S5 has materials content", len("".join(s5t)) > 20)
+
+    # === INTELLIGENT COMPLETION: S7 (Guidelines) ===
+    s7_hv2 = next((h for h in headings if "Safety" in h["text"]), None)
+    s8_hv = next((h for h in headings if "Revision" in h["text"]), None)
+    if s7_hv2 and s8_hv:
+        s7r = doc[s7_hv2["end"]:s8_hv["start"]]
+        s7t = [t.strip() for t in re.findall(r'<w:t[^>]*>([^<]+)</w:t>', s7r)
+               if t.strip() and t.strip() not in ["7.", "8.", "Safety and Compliance Guidelines",
+                                                    "Revision History"]]
+        s7t = [t for t in s7t if not t.startswith("(Add or modify")]
+        chk("IC", f"S7 guidelines populated ({len(s7t)} items)", len(s7t) > 0)
+        chk("IC", "S7 has substantive content", len("".join(s7t)) > 30)
+
+    # === INTELLIGENT COMPLETION: S8 (Revision History) ===
+    if s8_hv:
+        s8r = doc[s8_hv["end"]:]
+        s8t = [t.strip() for t in re.findall(r'<w:t[^>]*>([^<]+)</w:t>', s8r)
+               if t.strip() and t.strip() not in ["8.", "Revision History"]]
+        s8t = [t for t in s8t if not t.startswith("(Update revision")]
+        chk("IC", f"S8 revision populated ({len(s8t)} items)", len(s8t) > 0)
+        has_date = any(cfg.get("gen_date", "XX") in t for t in s8t)
+        chk("IC", "S8 has generation date", has_date)
 
     # === REVIEW FLAGS (5 flags x 3 checks each = 15) ===
     for label, ft in [("S2", "Add or modify scope"), ("S4", "Add or modify roles"),

@@ -125,7 +125,7 @@ function ConfigEditor({ config, onChange }) {
             {key} ({value.length} steps)
           </label>
           <div style={{ fontSize: 10, fontFamily: font, color: colors.textDim, marginBottom: 6 }}>
-            Indent levels: 1. 2. 3. = Main Step | a. b. c. = Sub-step | i. ii. iii. = Sub-sub | 1) 2) 3) = Sub-sub-sub
+            Indent levels: 1. 2. 3. = Main Step | a. b. c. = Sub-step | i. ii. iii. = Sub-sub | 1. 2. 3. (nested) = Sub-sub-sub
           </div>
           <div style={{ maxHeight: 300, overflowY: "auto", border: `1px solid ${colors.border}`, borderRadius: 6, padding: 8 }}>
             {value.map((step, i) => {
@@ -175,7 +175,7 @@ function ConfigEditor({ config, onChange }) {
                   <option value={0}>1. 2. 3. (Main)</option>
                   <option value={1}>a. b. c. (Sub)</option>
                   <option value={2}>i. ii. iii. (Sub-sub)</option>
-                  <option value={3}>1) 2) 3) (Sub-sub-sub)</option>
+                  <option value={3}>1. 2. 3. (Sub-sub-sub)</option>
                 </select>
               </div>
               );
@@ -324,6 +324,70 @@ export default function JennyApp() {
     }
   };
 
+  const importConfig = async (source) => {
+    // source can be a File or a string (pasted text)
+    let rawText;
+    if (source instanceof File) {
+      rawText = await source.text();
+      log(`Importing config from file: ${source.name}`, "info");
+    } else {
+      rawText = source;
+      log("Importing pasted config...", "info");
+    }
+
+    try {
+      const resp = await fetch(`${API_BASE}/api/import-config`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ raw_config: rawText }),
+      });
+      const data = await resp.json();
+
+      if (!resp.ok) {
+        log(`Import error: ${data.error}`, "error");
+        setStatus("error");
+        return;
+      }
+
+      const s = data.stats;
+      const ilvlParts = [`Main(1.2.3.)=${s.ilvl0}`, `Sub(a.b.c.)=${s.ilvl1}`, `Sub-sub(i.ii.)=${s.ilvl2}`];
+      if (s.ilvl3) ilvlParts.push(`Sub-sub-sub=${s.ilvl3}`);
+      log(`Config: ${s.total_steps} steps (${ilvlParts.join(", ")}), ${s.highlighted} highlighted`, "success");
+      log(`Roles: ${s.roles}, Guidelines: ${s.guidelines}`, "success");
+      (data.issues || []).forEach(i => log(`SANITIZED: ${i}`, "info"));
+
+      setModelLabel(data.source || "imported");
+      setConfig(data.config);
+      setStatus("review");
+      log("Config imported. Review and edit, then press GENERATE.", "info");
+    } catch (e) {
+      log(`Import failed: ${e.message}`, "error");
+      setStatus("error");
+    }
+  };
+
+  const handleConfigImportFile = (e) => {
+    const file = e.target.files?.[0];
+    if (file) importConfig(file);
+    e.target.value = "";
+  };
+
+  const [showPasteModal, setShowPasteModal] = useState(false);
+  const [pasteText, setPasteText] = useState("");
+
+  const handleConfigPaste = () => {
+    setShowPasteModal(true);
+    setPasteText("");
+  };
+
+  const submitPaste = () => {
+    if (pasteText.trim()) {
+      importConfig(pasteText.trim());
+      setShowPasteModal(false);
+      setPasteText("");
+    }
+  };
+
   const handleConfigChange = (path, value) => {
     setConfig(prev => {
       const next = JSON.parse(JSON.stringify(prev));
@@ -418,7 +482,7 @@ export default function JennyApp() {
             <div style={{ fontSize: 11, fontFamily: font, color: colors.textDim, marginBottom: 12, textTransform: "uppercase", letterSpacing: "0.1em" }}>1. Upload Files</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
               <FileUpload label="FEMA SOP Template (.docx)" accept=".docx" onFile={handleTemplate} file={template} id="template" />
-              <FileUpload label="Source SOP Draft (.docx)" accept=".docx" onFile={handleDraft} file={draft} id="draft" />
+              <FileUpload label="Source SOP Draft (.docx or .pdf)" accept=".docx,.pdf" onFile={handleDraft} file={draft} id="draft" />
             </div>
           </div>
 
@@ -436,6 +500,27 @@ export default function JennyApp() {
               {status === "extracting" ? "EXTRACTING..." : "EXTRACT CONFIG"}
             </button>
             <div style={{ fontSize: 10, color: colors.textDim, marginTop: 6, fontFamily: font }}>{modelLabel ? `Model: ${modelLabel}` : "Calls LLM via Anthropic API"}</div>
+
+            <div style={{ marginTop: 12, display: "flex", gap: 8 }}>
+              <label style={{
+                flex: 1, padding: "10px 0", borderRadius: 6, border: `1px solid ${colors.accent}`,
+                background: colors.surfaceAlt, color: colors.accent, fontFamily: font, fontSize: 11, fontWeight: 600,
+                cursor: "pointer", textAlign: "center",
+              }}>
+                IMPORT CONFIG FILE
+                <input type="file" accept=".py,.json,.txt" onChange={handleConfigImportFile} style={{ display: "none" }} />
+              </label>
+              <button onClick={handleConfigPaste} style={{
+                flex: 1, padding: "10px 0", borderRadius: 6, border: `1px solid ${colors.accent}`,
+                background: colors.surfaceAlt, color: colors.accent, fontFamily: font, fontSize: 11, fontWeight: 600,
+                cursor: "pointer",
+              }}>
+                PASTE CONFIG
+              </button>
+            </div>
+            <div style={{ fontSize: 10, color: colors.textDim, marginTop: 4, fontFamily: font }}>
+              Import a config from an external LLM
+            </div>
           </div>
 
           <div>
@@ -459,18 +544,12 @@ export default function JennyApp() {
               border: `1px solid ${validationResult.pct === 100 ? colors.success : colors.warning}`,
               borderRadius: 8, padding: 16,
             }}>
-              <div style={{ fontFamily: font, fontSize: 22, fontWeight: 700, marginBottom: 8, color: validationResult.pct === 100 ? colors.success : colors.warning }}>
-                {validationResult.score} ({validationResult.pct}%)
-              </div>
-              <div style={{ fontSize: 12, marginBottom: 4, color: validationResult.pct === 100 ? colors.success : colors.warning }}>
-                {validationResult.pct === 100 ? "ALL CHECKS PASSED" : "REVIEW FAILURES IN LOG"}
-              </div>
-              <div style={{ fontSize: 11, color: colors.textMuted, fontFamily: font }}>
-                Main Steps (1.2.3.): {validationResult.ilvl.i0} | Sub (a.b.c.): {validationResult.ilvl.i1} | Sub-sub (i.ii.iii.): {validationResult.ilvl.i2}{validationResult.ilvl.i3 ? ` | Sub-sub-sub: ${validationResult.ilvl.i3}` : ""}
+              <div style={{ fontFamily: font, fontSize: 14, fontWeight: 600, marginBottom: 10, color: validationResult.pct === 100 ? colors.success : colors.warning }}>
+                {validationResult.pct === 100 ? "Pipeline executed successfully" : "Pipeline completed with errors -- see log"}
               </div>
               {downloadUrl && (
                 <a href={downloadUrl} download style={{
-                  display: "block", marginTop: 12, padding: "10px 16px",
+                  display: "block", padding: "10px 16px",
                   background: validationResult.pct === 100 ? colors.generate : colors.warning,
                   borderRadius: 6, textAlign: "center", textDecoration: "none",
                   fontFamily: font, fontSize: 13, fontWeight: 700, color: "#fff",
@@ -503,6 +582,49 @@ export default function JennyApp() {
           {config && <ConfigEditor config={config} onChange={handleConfigChange} />}
         </div>
       </div>
+
+      {showPasteModal && (
+        <div style={{
+          position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
+          background: "rgba(0,0,0,0.7)", display: "flex", alignItems: "center", justifyContent: "center",
+          zIndex: 1000,
+        }} onClick={() => setShowPasteModal(false)}>
+          <div style={{
+            background: colors.surface, borderRadius: 12, padding: 24, width: 600, maxHeight: "80vh",
+            display: "flex", flexDirection: "column", gap: 12,
+          }} onClick={e => e.stopPropagation()}>
+            <div style={{ fontFamily: font, fontSize: 14, fontWeight: 600, color: colors.text }}>
+              Paste JENNY Config
+            </div>
+            <div style={{ fontSize: 11, color: colors.textDim, fontFamily: font }}>
+              Paste the Python config (JENNY_CONFIG = ...) or JSON output from your external LLM.
+            </div>
+            <textarea
+              value={pasteText}
+              onChange={e => setPasteText(e.target.value)}
+              placeholder={"JENNY_CONFIG = {\n    \"full_title\": \"...\",\n    ..."}
+              style={{
+                width: "100%", height: 300, padding: 12, background: colors.bg,
+                border: `1px solid ${colors.border}`, borderRadius: 6, color: colors.text,
+                fontFamily: "monospace", fontSize: 11, resize: "vertical",
+              }}
+              autoFocus
+            />
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <button onClick={() => setShowPasteModal(false)} style={{
+                padding: "8px 20px", borderRadius: 6, border: `1px solid ${colors.border}`,
+                background: "transparent", color: colors.textDim, fontFamily: font, fontSize: 12, cursor: "pointer",
+              }}>CANCEL</button>
+              <button onClick={submitPaste} disabled={!pasteText.trim()} style={{
+                padding: "8px 20px", borderRadius: 6, border: "none",
+                background: pasteText.trim() ? colors.accent : colors.surfaceAlt,
+                color: pasteText.trim() ? "#fff" : colors.textDim,
+                fontFamily: font, fontSize: 12, fontWeight: 600, cursor: pasteText.trim() ? "pointer" : "default",
+              }}>IMPORT</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -60,7 +60,7 @@ def sanitize_config(config):
             config[field] = config[field].replace("\n", " ").strip()
             issues.append(f"Stripped newline from {field}")
 
-    # Validate ilvl values
+    # Validate ilvl values and ensure highlight_color
     if "s6_steps" in config:
         for i, step in enumerate(config["s6_steps"]):
             if not isinstance(step.get("ilvl"), int) or step["ilvl"] not in (0, 1, 2, 3):
@@ -68,11 +68,18 @@ def sanitize_config(config):
                 issues.append(f"Reset invalid ilvl to 0 for step {i}")
             if "highlighted" not in step:
                 config["s6_steps"][i]["highlighted"] = False
+            if "highlight_color" not in step:
+                config["s6_steps"][i]["highlight_color"] = "yellow"
 
     # Validate structure_type
     if config.get("structure_type") not in ("single", "multi"):
         config["structure_type"] = "single"
         issues.append("Reset invalid structure_type to 'single'")
+
+    # Default cover_date to current month + year
+    if not config.get("cover_date") or config["cover_date"].strip() == "":
+        config["cover_date"] = datetime.now().strftime("%B %Y")
+        issues.append(f"Set cover_date to {config['cover_date']}")
 
     # Ensure required fields exist
     defaults = {
@@ -191,7 +198,10 @@ def upload():
     for field in ["template", "draft"]:
         if field in request.files:
             f = request.files[field]
-            path = session_dir / f"{field}.docx"
+            ext = os.path.splitext(f.filename)[1].lower() if f.filename else ".docx"
+            if ext not in (".docx", ".pdf"):
+                ext = ".docx"
+            path = session_dir / f"{field}{ext}"
             f.save(str(path))
             sessions[session_id][field] = str(path)
 
@@ -235,40 +245,71 @@ def extract():
     user_msg_template = blocks[1].strip()
 
     # ============================================================
-    # STEP 2: Extract structured text from draft .docx
-    # Include [ilvl=N] markers and [highlight=color] so the LLM
-    # has the XML context per Phase 0 prompt rule 3.
+    # STEP 2: Extract structured text from draft (.docx or .pdf)
+    # .docx: Include [ilvl=N] markers and [highlight=color] from XML
+    # .pdf: Extract plain text (no structural metadata available)
     # ============================================================
-    import zipfile
     try:
-        with zipfile.ZipFile(draft_path, 'r') as z:
-            xml = z.read('word/document.xml').decode('utf-8')
-
-        structured_lines = []
-        for m_para in re.finditer(r'<w:p [^>]*>(.*?)</w:p>', xml, re.DOTALL):
-            para = m_para.group(1)
-            texts = re.findall(r'<w:t[^>]*>([^<]*)</w:t>', para)
-            text = ''.join(texts).strip()
-            if not text:
-                continue
-
-            ilvl_m = re.search(r'w:ilvl w:val="(\d+)"', para)
-            hl_vals = re.findall(r'w:highlight w:val="([^"]+)"', para)
-            hl_color = hl_vals[0] if hl_vals else None
-
-            if ilvl_m:
-                ilvl = ilvl_m.group(1)
-                if hl_color:
-                    structured_lines.append(f'[ilvl={ilvl}, highlight={hl_color}] {text}')
+        if draft_path.lower().endswith(".pdf"):
+            import subprocess
+            try:
+                r = subprocess.run(
+                    ["pdftotext", "-layout", draft_path, "-"],
+                    capture_output=True, text=True, timeout=30
+                )
+                if r.returncode == 0 and r.stdout.strip():
+                    draft_text = r.stdout.strip()
                 else:
-                    structured_lines.append(f'[ilvl={ilvl}] {text}')
-            else:
-                if hl_color:
-                    structured_lines.append(f'[highlight={hl_color}] {text}')
-                else:
-                    structured_lines.append(text)
+                    raise FileNotFoundError("pdftotext not available")
+            except (FileNotFoundError, OSError):
+                try:
+                    from pdfminer.high_level import extract_text
+                    draft_text = extract_text(draft_path).strip()
+                except ImportError:
+                    try:
+                        import PyPDF2
+                        reader = PyPDF2.PdfReader(draft_path)
+                        pages = [p.extract_text() or "" for p in reader.pages]
+                        draft_text = "\n".join(pages).strip()
+                    except ImportError:
+                        return jsonify({
+                            "error": "PDF support requires pdftotext (poppler), pdfminer.six, or PyPDF2. Install one: pip install pdfminer.six"
+                        }), 500
 
-        draft_text = "\n".join(structured_lines)
+            if not draft_text:
+                return jsonify({"error": "Could not extract text from PDF. File may be scanned/image-only."}), 400
+
+        else:
+            import zipfile
+            with zipfile.ZipFile(draft_path, 'r') as z:
+                xml = z.read('word/document.xml').decode('utf-8')
+
+            structured_lines = []
+            for m_para in re.finditer(r'<w:p [^>]*>(.*?)</w:p>', xml, re.DOTALL):
+                para = m_para.group(1)
+                texts = re.findall(r'<w:t[^>]*>([^<]*)</w:t>', para)
+                text = ''.join(texts).strip()
+                if not text:
+                    continue
+
+                ilvl_m = re.search(r'w:ilvl w:val="(\d+)"', para)
+                hl_vals = re.findall(r'w:highlight w:val="([^"]+)"', para)
+                hl_color = hl_vals[0] if hl_vals else None
+
+                if ilvl_m:
+                    ilvl = ilvl_m.group(1)
+                    if hl_color:
+                        structured_lines.append(f'[ilvl={ilvl}, highlight={hl_color}] {text}')
+                    else:
+                        structured_lines.append(f'[ilvl={ilvl}] {text}')
+                else:
+                    if hl_color:
+                        structured_lines.append(f'[highlight={hl_color}] {text}')
+                    else:
+                        structured_lines.append(text)
+
+            draft_text = "\n".join(structured_lines)
+
     except Exception as e:
         return jsonify({"error": f"Failed to read draft: {e}"}), 500
 
@@ -400,6 +441,97 @@ def sanitize():
         "config": config,
         "issues": issues,
         "stats": stats,
+    })
+
+
+@app.route("/api/import-config", methods=["POST"])
+def import_config():
+    """Import a config from external source (Plan B/C).
+    Accepts raw text: Python file with JENNY_CONFIG dict, or JSON.
+    Parses, sanitizes, and returns the config ready for review."""
+    data = request.json
+    raw = data.get("raw_config", "").strip()
+
+    if not raw:
+        return jsonify({"error": "No config text provided"}), 400
+
+    config = None
+    source = "imported"
+
+    # Clean common chatbot artifacts before parsing
+    # Remove stray "Copy" text from copy-button UI artifacts
+    raw = re.sub(r'\n\s*Copy\n', '\n', raw)
+    raw = re.sub(r',\s*Copy\s*"', ', "', raw)
+    # Remove "Copy code" buttons
+    raw = re.sub(r'\n\s*Copy code\n', '\n', raw)
+    # Strip leading/trailing prose before/after the config
+    # Find the actual config start
+    config_start = raw.find("JENNY_CONFIG")
+    if config_start > 0:
+        raw = raw[config_start:]
+    # Strip markdown fences
+    if raw.strip().startswith("```"):
+        raw = re.sub(r'^```\w*\n', '', raw.strip())
+        raw = re.sub(r'\n```\s*$', '', raw)
+
+    # Try 1: Parse as Python (JENNY_CONFIG = {...})
+    if "JENNY_CONFIG" in raw:
+        try:
+            namespace = {}
+            exec(raw, namespace)
+            config = namespace.get("JENNY_CONFIG")
+            source = "python-import"
+        except Exception:
+            pass
+
+    # Try 2: Parse as JSON
+    if not config:
+        try:
+            config = json.loads(raw)
+            source = "json-import"
+        except json.JSONDecodeError:
+            pass
+
+    # Try 3: Find a JSON object in the text
+    if not config:
+        m = re.search(r'\{[\s\S]*\}', raw)
+        if m:
+            try:
+                config = json.loads(m.group())
+                source = "json-extract"
+            except json.JSONDecodeError:
+                pass
+
+    if not config:
+        return jsonify({
+            "error": "Could not parse config. Expected a Python file with JENNY_CONFIG = {...} or a JSON object.",
+        }), 422
+
+    # Validate it has the minimum required fields
+    if "s6_steps" not in config:
+        return jsonify({"error": "Config missing s6_steps field"}), 422
+
+    # Sanitize
+    config, issues = sanitize_config(config)
+
+    # Stats
+    steps = config.get("s6_steps", [])
+    stats = {
+        "total_steps": len(steps),
+        "ilvl0": sum(1 for s in steps if s.get("ilvl") == 0),
+        "ilvl1": sum(1 for s in steps if s.get("ilvl") == 1),
+        "ilvl2": sum(1 for s in steps if s.get("ilvl") == 2),
+        "ilvl3": sum(1 for s in steps if s.get("ilvl") == 3),
+        "highlighted": sum(1 for s in steps if s.get("highlighted")),
+        "roles": len(config.get("s4_roles", [])),
+        "guidelines": len(config.get("s7_guidelines", [])),
+    }
+
+    return jsonify({
+        "config": config,
+        "issues": issues,
+        "stats": stats,
+        "source": source,
     })
 
 
