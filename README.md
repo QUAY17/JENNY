@@ -2,14 +2,14 @@
 
 **Intelligent Document Generator**
 
-JENNY automates the conversion of draft docs into properly formatted federal-compliant documents and reports.
+JENNY automates the conversion of an unstructured draft into a properly formatted federal-compliant SOP.
 
-JENNY can be paired with ANY LLM for structured content extraction. Because the heavy lifting is done by a deterministic Python pipeline for template mutation, and a human in the loop step for modification, the generation results achieve 100% validation accuracy and contain a 79-check structural integrity gate.
+JENNY can be paired with ANY LLM for structured content extraction, WHY? because that is what LLMs are good at. A human in the loop reviews the extraction for modification/ approval, and the heavy lifting of Word document styling is done by a Python pipeline. Accuracy scoring contains a 79-check structural integrity gate and runs as part of the pipeline, alerting the user of any errors before the final docx generation.
 
 ## Cost Savings
 
-The JENNY pipeline approach reduces LLM token usage and cost.
-Compared to a monotlithic AI system, where the endpoint does all of the work, JENNY reduces tokens by 88% because it splits out responsibilities between the LLM and the python backend.
+The JENNY pipeline approach reduces LLM token usage and thus cost.
+Compared to a monotlithic AI system, where the endpoint does all of the work, JENNY reduces tokens by 88% because it splits responsibilities between the LLM and the python pipeline.
 
 | Metric | Opus Monolithic | Pipeline (Sonnet Phase 0) |
 |--------|----------------|--------------------------|
@@ -29,9 +29,9 @@ User uploads:                     Backend:                        Output:
                                   /api/download      (serve)  ---> User downloads
 ```
 
-**Phase 0 (LLM):** Extracts structured content from the source draft into a config dict. The backend loads the Phase 0 prompt from `JENNY_Phase0_Extraction_Prompt.md`, extracts text from the draft with `[ilvl=N]` and `[highlight=color]` markers (for .docx) or plain text (for .pdf), and sends to the LLM. Hierarchy is assigned based on FEMA SOP template conventions (`1. > a. > i. > 1.`), not the draft's formatting. Roles, materials, and guidelines are derived from the procedure steps. The backend sanitizes the config (ampersand encoding, ilvl validation, cover date default, highlight_color, newline stripping) before pipeline execution.
+**Phase 0 (LLM):** Extracts structured content from the source draft into a modifiable file that the user previews on the frontend. The backend loads the Phase 0 prompt from `JENNY_Phase0_Extraction_Prompt.md`, extracts text from the draft with `[ilvl=N]` and `[highlight=color]` markers (for .docx) or plain text (for .pdf), and sends to the LLM. Hierarchy is assigned based on FEMA SOP template conventions (`1. > a. > i. > 1.`), not the draft's formatting. Roles, materials, and guidelines are derived from the procedure steps. The backend sanitizes the config (ampersand encoding, ilvl validation, cover date default, highlight_color, newline stripping) before pipeline execution.
 
-**Phase 1+ (Deterministic):** The Python pipeline unpacks the FEMA template, performs all XML mutations from the config, inserts review flags, removes page breaks, updates headers, and validates the output against 79 structural checks. No LLM involvement. Supports 4-level hierarchy (ilvl 0-3) and multiple highlight colors (yellow, cyan, etc.).
+**Phase 1+ (Deterministic):** The Python pipeline unpacks the FEMA template, performs all XML mutations from the config, inserts review flags, removes page breaks, updates headers, and validates the output against 79 structural checks. No LLM involvement. Supports 4-level nested hierarchy (ilvl 0-3).
 
 ## API
 
@@ -94,19 +94,19 @@ JENNY/
     package.json                        Vite + React dependencies
 ```
 
-The FEMA SOP template (`JENNYS_SOP_Template.docx`) is uploaded by the user through the frontend, not bundled with the code.
+The FEMA SOP template (`JENNYS_SOP_Template.docx`) is uploaded by the user through the frontend.
 
 ## Workflow
 
 1. **Upload** -- User provides the FEMA template (.docx) and a source SOP draft (.docx or .pdf).
-2. **Extract** -- Backend loads the Phase 0 prompt, reads the draft, sends structured text to Claude Sonnet 4.6, receives a Python config. Config is parsed and sanitized automatically.
-3. **Review** -- User reviews and edits the extracted config in the frontend. Step hierarchy (ilvl 0-3), text, highlights, roles, materials, and guidelines are all editable. User-friendly labels show the FEMA numbering conventions: `1. 2. 3.` = Main Step, `a. b. c.` = Sub-step, `i. ii. iii.` = Sub-sub, `1. 2. 3.` (nested) = Sub-sub-sub.
-4. **Generate** -- Backend runs the deterministic pipeline. Template is unpacked, XML is mutated, output is validated against 79 checks, and the .docx is packed.
+2. **Extract** -- Backend loads the Phase 0 prompt, reads the draft, sends structured text to Claude Sonnet 4.6, receives a Python config file. Config file is parsed and sanitized automatically.
+3. **Review** -- User reviews and edits the extracted config file in the frontend. Step hierarchy (ilvl 0-3), text, highlights, roles, materials, and guidelines are all editable. User-friendly labels show the FEMA numbering conventions: `1. 2. 3.` = Main Step, `a. b. c.` = Sub-step, `i. ii. iii.` = Sub-sub, `1. 2. 3.` (nested) = Sub-sub-sub.
+4. **Generate** -- Backend runs the Python pipeline. Template is unpacked, XML is mutated, output is validated against 79 checks, and the .docx is packed.
 5. **Download** -- User downloads the validated SOP.
 
 ## Validation Gate
 
-The pipeline runs 81-84 structural checks (count varies by SOP complexity):
+The pipeline runs structural checks (count varies by SOP complexity):
 
 - **XML (4)** -- document.xml and header5.xml parse, no double-encoded ampersands
 - **Placeholders (8)** -- all template markers removed from body and header

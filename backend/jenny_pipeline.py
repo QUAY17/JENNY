@@ -6,7 +6,6 @@ Deterministic template mutation - no LLM required after Phase 0.
 Usage:
   1. An LLM (any model) fills out jenny_config.py by reading the source draft
   2. Run: python jenny_pipeline.py jenny_config.py TEMPLATE.docx OUTPUT.docx [INSTRUCTIONS.md]
-
 The pipeline:
   - Extracts unpack/pack scripts from v13 instructions (or uses built-in fallback)
   - Unpacks the template
