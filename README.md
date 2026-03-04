@@ -18,20 +18,40 @@ Three input paths for Phase 0:
 - **Plan B:** Client's own LLM endpoint generates the config, imported into JENNY
 - **Plan C:** User pastes the Phase 0 prompt into any chatbot, imports the output
 
+## Standalone Executables
+
+JENNY ships as a single `.exe` file -- no Python, Node.js, or environment setup required.
+
+**Two variants:**
+
+| Executable | Description |
+|------------|-------------|
+| `JENNY_keyed.exe` | Anthropic API key embedded. Double-click and go. |
+| `JENNY.exe` | No key. User enters their own API key in the UI, or uses "Paste Config" with any external LLM. |
+
+**Usage:** Place the `.exe` in its own folder and double-click. A browser window opens automatically to `http://localhost:5000`. The app creates `uploads/` and `jobs/` folders next to the exe at runtime.
+
+**Building executables:**
+```
+pip install pyinstaller
+python build.py
+```
+This builds the frontend, then produces both `dist/JENNY.exe` and `dist/JENNY_keyed.exe`. The keyed build reads the API key from `.env`.
+
 ## Stack
 
 - **Backend:** Python (Flask) -- `jenny_backend.py`
-- **Frontend:** React (Vite) -- `jenny_frontend.jsx`
+- **Frontend:** React (Vite) -- `App.jsx`
 - **Pipeline:** Python (stdlib only) -- `jenny_pipeline.py`, `pack_docx.py`, `unpack_docx.py`
+- **Build:** PyInstaller (`build.py` + `jenny.spec`)
 
-## Setup
+## Setup (Development)
 
 **Backend:**
 ```
-cd backend
-pip install flask flask-cors
-pip install pdfminer.six
+pip install -r requirements.txt
 set ANTHROPIC_API_KEY=sk-ant-...
+cd backend
 python jenny_backend.py
 ```
 
@@ -42,24 +62,29 @@ npm install
 npm run dev
 ```
 
-Backend runs on `http://localhost:5000`. Frontend runs on `http://localhost:5173`.
+Backend runs on `http://localhost:5000`. Frontend dev server runs on `http://localhost:5173`.
 
 ## File Structure
 
 ```
 JENNY/
   README.md
-  .gitignore
+  requirements.txt
+  build.py                              Build script for executables
+  jenny.spec                            PyInstaller spec
+  .env                                  API key (not committed)
   backend/
-    jenny_backend.py                    Flask API (7 endpoints)
-    jenny_pipeline.py                   Deterministic template mutation (825 lines)
+    jenny_backend.py                    Flask API (9 endpoints)
+    jenny_pipeline.py                   Deterministic template mutation
     unpack_docx.py                      Unpack .docx to XML
     pack_docx.py                        Pack XML to .docx
     JENNY_Phase0_Extraction_Prompt.md   Phase 0 prompt (loaded at runtime)
     JENNY_Phase0_Chatbot_Prompt.md      Single-paste prompt for Plan C
   frontend/
     src/App.jsx                         React UI
+    index.html
     package.json
+  dist/                                 Built executables (not committed)
 ```
 
 The FEMA template is uploaded by the user, not bundled with the code.
@@ -75,6 +100,9 @@ The FEMA template is uploaded by the user, not bundled with the code.
 | `/api/sanitize` | POST | Sanitize a config |
 | `/api/generate` | POST | Run pipeline, return validated .docx |
 | `/api/download/<job_id>` | GET | Download generated .docx |
+| `/api/image/<session_id>/<filename>` | GET | Serve extracted image from draft |
+| `/api/key-status` | GET | Check if API key is configured |
+| `/api/set-key` | POST | Set API key at runtime (keyless mode) |
 
 ## Workflow
 
@@ -85,6 +113,28 @@ The FEMA template is uploaded by the user, not bundled with the code.
 5. **Download** -- User downloads the .docx
 
 LLM-generated sections (Scope, Roles, Materials, Guidelines, Hierarchy) require SOP owner review before approval.
+
+## Image/Screenshot Support
+
+Draft SOPs often contain screenshots in their step-by-step instructions. JENNY extracts these from both `.docx` and `.pdf` drafts, displays them in the review UI at the correct position within the S6 steps, and embeds them in the generated output.
+
+- **Extraction:** Images are pulled from the draft during Phase 0 and spliced into `s6_steps` at their original positions
+- **Review:** Thumbnails display inline with text steps; ilvl (indentation level) is editable; images can be deleted
+- **Output:** Images are embedded in the output `.docx` with proper OOXML structure, capped at ~4 inches wide, indented to match their ilvl
+- **PDF filtering:** Skips logos, seals, and tiny icons; preserves UI screenshots and dialog boxes
+
+Image steps in the config:
+```python
+{"type": "image", "src": "image1.png", "ilvl": 0, "width_emu": 3657600, "height_emu": 2743200}
+```
+
+## Security
+
+- No `exec()` -- all config parsing uses `ast.literal_eval` (safe literal evaluation only)
+- Debug mode disabled by default (set `FLASK_DEBUG=1` to enable)
+- 50 MB upload size limit
+- Server-side error logging only (no tracebacks sent to client)
+- Path traversal protection on image serving endpoint
 
 ## Validation Gate
 
@@ -115,7 +165,7 @@ Python dict with these fields:
 | `purpose` | string | Verbatim from source |
 | `scope` | string | Verbatim or derived from S6 |
 | `s6_intro` | string | Text before Step 1 |
-| `s6_steps` | object[] | `{ text, ilvl (0-3), highlighted, highlight_color }` |
+| `s6_steps` | object[] | `{ text, ilvl (0-3), highlighted, highlight_color }` or `{ type: "image", src, ilvl, width_emu, height_emu }` |
 | `s4_roles` | string[] | `"Role: Description"` derived from S6 |
 | `s5_materials` | string | Comma-separated list derived from S6 |
 | `s7_guidelines` | string[] | Compliance guidelines derived from S6 |
