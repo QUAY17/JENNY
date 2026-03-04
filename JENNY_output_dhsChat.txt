@@ -1,0 +1,596 @@
+# JENNY Phase 0 -- Chatbot Extraction Prompt
+
+Copy everything below the line into any chatbot (ChatGPT, Copilot, Gemini, Claude).
+Then attach or paste your draft SOP document.
+The chatbot will output a Python config file.
+Import the output into JENNY using the IMPORT FILE or PASTE CONFIG button.
+
+---
+
+I need you to extract structured content from an SOP draft document. Follow these instructions exactly.
+
+You are a document structure extractor. Your ONLY job is to read a source SOP draft and output a Python config file. You do NOT generate documents, modify templates, write XML, or make creative decisions.
+
+CRITICAL RULES -- VIOLATIONS CAUSE PIPELINE FAILURE:
+
+1. VERBATIM EXTRACTION. Copy text exactly as it appears in the source. Do not fix spelling, grammar, capitalization, or punctuation. If the source says "RECONCILATION" (missing an I), your output says "RECONCILATION". If the source has a trailing comma, your output has a trailing comma.
+
+2. NO INVENTION. Every string in your output must trace back to the source document. Do not add steps, roles, materials, or guidelines that are not present or directly derivable from the source text.
+
+3. ASSIGN HIERARCHY. The ilvl (indentation level) of each step must reflect the FEMA SOP template numbering conventions (1. > a. > i. > 1.), NOT necessarily the source draft's formatting. Draft authors often format steps flat when they should be nested.
+   - TEMPLATE HIERARCHY: ilvl 0 = main procedural steps (1. 2. 3.), ilvl 1 = sub-steps or listed items (a. b. c.), ilvl 2 = sub-sub-steps (i. ii. iii.), ilvl 3 = fourth-level items (1. 2. 3. under iii.)
+   - NESTING RULE: If a step introduces a list (e.g., "the following:", "these items:", "columns:", "(a.-h.)"), the items that follow are sub-steps (one ilvl deeper than the introducing step), even if the source marks them at the same level.
+   - CONTEXT RULE: Short items that are clearly members of a list (column headers, document names, system names) following an introducing step should be nested under it.
+   - If the source text includes [ilvl=N] markers, use them as a starting hint but still apply the NESTING and CONTEXT rules above. If no markers are present, infer hierarchy entirely from content.
+   - Nesting can go up to 4 levels deep (ilvl 0 through ilvl 3). Not every SOP uses all 4 levels.
+   - When in doubt about nesting depth, default to ilvl 0. Do NOT guess ilvl 1 or 2 without evidence from content structure.
+
+4. HIGHLIGHTED STEPS. If the source contains highlighting on a step (yellow, cyan, or other colors indicating "needs review"), set "highlighted": True and "highlight_color" to the color name (e.g., "yellow", "cyan"). If you cannot determine highlighting from the source format, set highlighted to False and highlight_color to "yellow" (default), and add an extraction_note.
+
+5. AMPERSAND ENCODING. If a title contains "&", encode it as "&amp;" in full_title and short_title. This is required because the pipeline inserts these values into XML. Example: "Onboarding & Orientation" becomes "Onboarding &amp; Orientation". Do NOT encode ampersands in purpose, scope, steps, roles, materials, or guidelines -- only in full_title and short_title.
+
+6. STRUCTURE TYPE. Default is "single" (one continuous procedure). Only use "multi" if the source has CLEAR evidence of multiple separate procedures: distinct subsection headings with their own step lists, numbering that restarts, or explicit labels like "Phase 1" / "Phase 2" / "Logistics" / "Finance".
+
+7. SECTIONS 4, 5, 7 DERIVATION. These sections are derived FROM Section 6 content:
+   - s4_roles: Identify every actor/role/team/person mentioned in S6 steps. For each, write "Role Name: Description of what they do in this procedure." The description must be grounded in what S6 actually says they do. Do not invent responsibilities.
+   - s5_materials: Identify every system, tool, document, spreadsheet, form, or resource mentioned in S6 steps. Write as a single sentence: "Required materials and tools include: [comma-separated list]."
+   - s7_guidelines: Identify data sensitivity, access control, verification, documentation, or compliance concerns implied by S6 content. Write 3-6 guideline sentences. Each must be traceable to a specific S6 concern (e.g., if S6 mentions PII like passenger names, write a guideline about limiting access to that data).
+
+8. SCOPE. If the source document has an explicit scope section, use it verbatim. If no scope exists, generate one by summarizing WHAT the procedure covers and WHO it applies to, using only nouns and actors from S6.
+
+9. EXTRACTION NOTES. Use the extraction_notes field to flag anything the SOP owner should review BEFORE the pipeline runs:
+   - Spelling that looks wrong but was preserved verbatim
+   - Casing anomalies (ALL CAPS titles, etc.)
+   - Ambiguous hierarchy where you had to make a judgment call
+   - Missing sections in the source
+   - Highlighted content you could not detect from the format
+
+10. OUTPUT FORMAT. Output ONLY the Python file content below. No markdown fences around the entire output. No explanatory text before or after. No "Here is the config:" preamble. Start with the # comment line and end with the closing }.
+
+---
+
+Read the attached source SOP draft and extract its content into the JENNY config format.
+
+Output a Python file with this exact structure:
+
+# JENNY Config - [Short Title] SOP
+# Generated by Phase 0 extraction from source draft
+
+JENNY_CONFIG = {
+    "full_title": "",          # All title text before "Purpose" heading. Encode & as &amp;
+    "short_title": "",         # The specific procedure name (last segment after " - " if compound title). Encode & as &amp;
+    "structure_type": "single",  # "single" or "multi"
+    "cover_date": "",          # Date from source, or current month + year if none
+    "author": "JENNY-v13",    # Do not change
+    "gen_date": "",            # Today's date as MM/DD/YYYY
+
+    "extraction_notes": [
+        # Flag any concerns here as strings
+    ],
+
+    "purpose": "",             # Verbatim purpose statement from source
+
+    "scope": "",               # Verbatim from source, or generate from S6 nouns if missing
+
+    "s6_intro": "",            # Text before Step 1 that has no numbering. Empty string if none.
+
+    "s6_steps": [
+        # {"text": "Step text verbatim", "ilvl": 0, "highlighted": False, "highlight_color": "yellow"},
+        # {"text": "Sub-step text verbatim", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+    ],
+
+    "s4_roles": [
+        # "Role Name: What they do in this procedure (derived from S6).",
+    ],
+
+    "s5_materials": "",        # "Required materials and tools include: X, Y, Z."
+
+    "s7_guidelines": [
+        # "Guideline derived from S6 content.",
+    ],
+
+    "s3_supersession": "This document does not supersede any existing FEMA doctrine.",
+}
+
+REFERENCE EXAMPLE -- CBA Reconciliation config (shows correct format and level of detail):
+
+# JENNY Config - CBA Reconciliation SOP
+# Generated by Phase 0 extraction from source draft
+
+JENNY_CONFIG = {
+    "full_title": "Onboarding &amp; Orientation Travel Job Aid - CBA Reconciliation",
+    "short_title": "CBA Reconciliation",
+    "structure_type": "single",
+    "cover_date": "February 2026",
+    "author": "JENNY-v13",
+    "gen_date": "02/18/2026",
+
+    "extraction_notes": [
+        "SPELLING: Source title contains 'RECONCILATION' (missing second 'I'). Preserved verbatim per v13 rules. Confirm with SOP owner whether this is intentional.",
+        "CASING: Source title uses ALL CAPS for 'CBA RECONCILATION'. Preserved verbatim. Confirm with SOP owner.",
+    ],
+
+    "purpose": "Reconcile CBA charges that have not been reimbursed through Concur Travel for rescheduled/cancelled onboarding attendees being tracked by the CBA Payment Services Section.",
+
+    "scope": "This SOP applies to the Travel Team review of FIWA Outstanding CBA Charges and updates to the CBA Spreadsheet, including verifying Passenger Name information using the Contact and Verification Roster, coordinating TA/VCH and amended TA actions with the new employee and onboarder, and coordinating with the CBA Team, Budget Team, and CBA Reconciliation Team to support Manual Pay actions using IFMIS.",
+
+    "s6_intro": "Request from CBA Team to review and reconcile all CBA charges that are not accounted for under CONCUR TAs and Vouchers",
+
+    "s6_steps": [
+        {"text": "Travel Team and the Section Chief are copied on the request received monthly for FIWA Outstanding CBA Charges to review", "ilvl": 0, "highlighted": False, "highlight_color": "yellow"},
+        {"text": "The items that are reviewed are the following:", "ilvl": 0, "highlighted": False, "highlight_color": "yellow"},
+        {"text": "Passenger (Onboarders) Last Name, First Name", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+        {"text": "Transaction Date", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+        {"text": "Transaction Post Date", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+        {"text": "Authorization Number", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+        {"text": "Transaction Reference Number", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+        {"text": "Merchant Name e.g. Agent Fee, Hotel Charges,", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+        {"text": "Cost", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+        {"text": "Status", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+        {"text": "Action/Comment", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+        {"text": "The Travel Team reviews each listed Passenger Name first in the most updated Contact and Verification Roster to make sure the new hire did not cancel or reschedule after they made National Travel Reservations", "ilvl": 0, "highlighted": False, "highlight_color": "yellow"},
+        {"text": "If the new hire did not onboard after they made National Travel Reservations, the travel team will make a note on the CBA Spreadsheet under Action/Comment stating FIWA Manual Pay (this is typically for a NT fee)", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+        {"text": "If new hire onboarded, and they have TA/VCH for Onboarding and may have not included a National Travel Fee, the Travel Team will reach out to the new employee and have them amend their TA or we can assist with amending the TA and email the onboarder to re-sign the amended TA for processing", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+        {"text": "If the new employee resigns after onboarding and after the CBA report is received, Travel Team could sign on behalf of the employee so the fee could be reimbursed. (highlighted to go back and review the level of detail needed here)", "ilvl": 2, "highlighted": True, "highlight_color": "yellow"},
+        {"text": "Once all line items have been reviewed and Action/Comments have been updated, the Travel team will total any CITI Cost that applies and send a request to the Budget Team to make sure funds are available in IFMIS for the CBA Team to request Manual Pay for charges not paid", "ilvl": 0, "highlighted": False, "highlight_color": "yellow"},
+        {"text": "The Travel Team then forwards the spreadsheet, amount, and line of accounting information to the CBA Reconciliation Team for review and action", "ilvl": 0, "highlighted": False, "highlight_color": "yellow"},
+    ],
+
+    "s4_roles": [
+        "Travel Team: Reviews FIWA Outstanding CBA Charges, verifies Passenger Name details using the Contact and Verification Roster, updates the CBA Spreadsheet Action/Comment and Action/Comments fields, totals any CITI Cost, coordinates with the Budget Team on IFMIS funds availability, and forwards the spreadsheet, amount, and line of accounting information to the CBA Reconciliation Team for review and action.",
+        "Section Chief: Is copied on the monthly request and provides oversight for the review and reconciliation actions.",
+        "CBA Team: Requests review of FIWA Outstanding CBA Charges and uses the reconciliation information to support Manual Pay for charges not paid.",
+        "Budget Team: Confirms that funds are available in IFMIS for Manual Pay actions.",
+        "CBA Reconciliation Team: Reviews the forwarded spreadsheet, amount, and line of accounting information and completes reconciliation actions.",
+        "New employee: Amends TA or TA/VCH when requested and re-signs an amended TA for processing.",
+    ],
+
+    "s5_materials": "Required materials and tools include: FIWA Outstanding CBA Charges spreadsheet, Contact and Verification Roster, CBA Spreadsheet including Action/Comment and Action/Comments, TA/VCH and TA records including amended TA, CBA report, spreadsheet amount and line of accounting information, IFMIS for confirming funds availability, and CITI Cost totals.",
+
+    "s7_guidelines": [
+        "Limit access to Passenger Name information and other onboarding details used in FIWA Outstanding CBA Charges and the CBA Spreadsheet.",
+        "Document review outcomes in the CBA Spreadsheet Action/Comment or Action/Comments field before forwarding to the CBA Reconciliation Team.",
+        "Confirm the spreadsheet amount, CITI Cost total, and line of accounting information before coordinating Manual Pay actions and before verifying funds availability in IFMIS with the Budget Team.",
+        "When a TA/VCH or amended TA requires signature, ensure the amended TA is re-signed by the new employee or onboarder prior to processing.",
+    ],
+
+    "s3_supersession": "This document does not supersede any existing FEMA doctrine.",
+}
+
+Now read the attached source draft and produce the config. Output ONLY the Python file.
+
+---
+
+I will attach or paste the source SOP draft below. Read it and output ONLY the Python config file. No other text.
+
+JENNY Config - Onboarding & Orientation Travel Memo SOP
+Generated by Phase 0 extraction from source draft
+JENNY_CONFIG = { "full_title": "FEMA Incident Workforce Academy (FIWA) Job Aid\n\nOnboarding & Orientation Travel Job Aid", "short_title": "Onboarding & Orientation Travel Memo", "structure_type": "single", "cover_date": "06/2024", "author": "JENNY-v13", "gen_date": "06/06/2024",
+ Copy
+"extraction_notes": [
+    "CASING: Source uses inconsistent capitalization in section headers and step descriptions. Preserved verbatim per v13 rules.",
+    "NESTING: Hierarchy inferred based on list introductions and context. Ambiguous nesting for items under Build Travel Memo; assigned ilvl 1 per NESTING RULE.",
+    "HIGHLIGHTING: No highlighting detected in source. All steps set to highlighted=False, highlight_color='yellow' as default.",
+    "SCOPE: No explicit scope section found; generated from S6 nouns and actors.",
+    "PURPOSE: Purpose statement taken verbatim from source.",
+],
+
+"purpose": "To request and administratively record an approved roster of personnel who are authorized travel expenses to attend Onboarding and Orientation using the CBA.",
+
+"scope": "This SOP applies to the FIWA Onboarding and Orientation Travel Team, Mission Support Section Chief, Financial Management of Payment Services Supervisor, Payment Services Section, FEMA Finance CBA-Recon, Workforce Coordination Branch, FIWA Mission Support Team, and Onboarding Students, covering the creation, review, approval, and distribution of the Travel Memo for authorized travel expenses using the CBA.",
+
+"s6_intro": "Upon release of closed Onboarding and Orientation roster the Travel Memo must be submitted for approval two weeks prior to the next pay period:",
+
+"s6_steps": [
+    {"text": "Build Travel Memo by listing all Onboarding Students requiring use of CBA funding for flights (and possibly lodging).", "ilvl": 0, "highlighted": False, "highlight_color": "yellow"},
+    {"text": "Last Name", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+    {"text": "First Name", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+    {"text": "Personal Email", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+    {"text": "Personal Phone Number", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+    {"text": "Travel Mode (Round Trip, One-Way)", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+    {"text": "Flight Date (Date of Arrival)", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+    {"text": "Send for review by Mission Support Section Chief for signature", "ilvl": 0, "highlighted": False, "highlight_color": "yellow"},
+    {"text": "Send signed memo to Financial Management of Payment Services Supervisor", "ilvl": 0, "highlighted": False, "highlight_color": "yellow"},
+    {"text": "Update Travel Memo with any corrections/additions (Cancellation, hotel accommodation) and send to the Financial Management of Payment Services Supervisor for approval", "ilvl": 0, "highlighted": False, "highlight_color": "yellow"},
+    {"text": "Distribution should include:", "ilvl": 0, "highlighted": False, "highlight_color": "yellow"},
+    {"text": "Payment Services Section", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+    {"text": "FEMA Finance CBA-Recon", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+    {"text": "Workforce Coordination Branch", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+    {"text": "FIWA Mission Support Team", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+],
+
+"s4_roles": [
+    "Onboarding Students: Listed in the Travel Memo for use of CBA funding for flights and possibly lodging.",
+    "Mission Support Section Chief: Reviews the Travel Memo and provides signature.",
+    "Financial Management of Payment Services Supervisor: Receives signed memo and approves corrections/additions.",
+    "Payment Services Section: Receives distributed Travel Memo.",
+    "FEMA Finance CBA-Recon: Receives distributed Travel Memo.",
+    "Workforce Coordination Branch: Receives distributed Travel Memo.",
+    "FIWA Mission Support Team: Receives distributed Travel Memo.",
+],
+
+"s5_materials": "Required materials and tools include: Travel Memo, CBA funding, list of Onboarding Students, personal email, personal phone number, travel mode, flight date, signed memo, corrections/additions, distribution list.",
+
+"s7_guidelines": [
+    "Limit access to personal information such as names, emails, and phone numbers listed in the Travel Memo.",
+    "Submit the Travel Memo for approval two weeks prior to the next pay period as required.",
+    "Ensure all corrections and additions to the Travel Memo are documented and sent for approval.",
+    "Distribute the approved Travel Memo to all listed recipients to ensure proper coordination.",
+    "Verify that only personnel authorized for travel expenses using the CBA are included in the Travel Memo.",
+],
+
+"s3_supersession": "This document does not supersede any existing FEMA doctrine.",
+}
+
+Certainly! Here is the Onboarding & Orientation Travel Job Aid SOP in the requested JENNY_CONFIG format, using the structure and conventions from your prompt:
+
+PYTHON
+ Copy
+JENNY_CONFIG = {
+    "full_title": "FEMA Incident Workforce Academy (FIWA) Job Aid\n\nOnboarding & Orientation Travel Job Aid",
+    "short_title": "Onboarding & Orientation Travel Job Aid",
+    "structure_type": "single",
+    "cover_date": "06/2024",
+    "author": "JENNY-v13",
+    "gen_date": "06/06/2024",
+
+    "extraction_notes": [
+        "CASING: Source uses inconsistent capitalization in section headers and step descriptions. Preserved verbatim per v13 rules.",
+        "NESTING: Hierarchy inferred based on list introductions and context. Ambiguous nesting for items under Travel Tracker breakdown; assigned ilvl 1 per NESTING RULE.",
+        "HIGHLIGHTING: No highlighting detected in source. All steps set to highlighted=False, highlight_color='yellow' as default.",
+        "SCOPE: No explicit scope section found; generated from S6 nouns and actors.",
+        "PURPOSE: Purpose statement taken verbatim from source.",
+    ],
+
+    "purpose": "Created to ensure, inform and administratively record each Onboarder�s incoming and outgoing travel.",
+
+    "scope": "This SOP applies to the FIWA Onboarding and Orientation Travel Team, HR, FEMA HQ IT, Workforce Coordination Branch, and Onboarding Students, covering the creation, tracking, and administrative recording of Onboarder travel using the Travel Tracker, including coordination of travel authorizations, vouchers, and onward movement to disasters.",
+
+    "s6_intro": "Upon release of closed Onboarding and Orientation roster, the Travel Tracker is created for that Pay Period of Onboarding and Orientation.  The Travel Tracker is kept on Teams-FIWA Onboarding and webTA/Gov TA Audits Channel-Onboarding Travel Excel Spreadsheet Breakdown of each item captured listed below:",
+
+    "s6_steps": [
+        {"text": "EIN", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+        {"text": "HR provides this information from Finance SharePoint once all HR Paperwork is uploaded in the Finance system", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+        {"text": "Concur Profile", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+        {"text": "Once The EINs are entered into the Finance System, Travel Services creates the Concur Profiles in Concur", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+        {"text": "Employee Type", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+        {"text": "Travel Team loads the Employee Type from the Contact and Verification Roster", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+        {"text": "Last Name", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+        {"text": "Travel Team loads the Last Names from the Contact and Verification Roster", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+        {"text": "First Name", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+        {"text": "Travel Team loads the First Names from the Contact and Verification Roster", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+        {"text": "Middle Initial", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+        {"text": "Travel Team loads the Middle Initial from the Contact and Verification Roster", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+        {"text": "FEMA Email Address", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+        {"text": "The Sunday of arrival FEMA HQ IT creates the Onboarders FEMA email address and provides those to FIWA Onboarding team and is listed in Contact and Verification Roster and copied into the Travel Tracker", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+        {"text": "Travel Team captures this information in case we need to reach out to them for travel questions or requests to complete any Travel Authorization (TA) or Travel Voucher requests", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+        {"text": "Personal Phone Number", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+        {"text": "Travel Team loads the personal phone numbers listed from the Contact and Verification Roster", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+        {"text": "Travel Team captures this information in case the team need to reach out to them for travel questions or requests to complete any TA or Travel Voucher requests", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+        {"text": "POV/Meet the Bus Mileage", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+        {"text": "Travel Team loads the POV Miles/Meet the Bus Miles listed from the Contact and Verification Roster", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+        {"text": "Workforce Coordination Branch (WCB) utilizes this information when creating their first TA", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+        {"text": "Arrival Date", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+        {"text": "Travel Team tracks this information in the Contact and Verification Roster and in the Travel Tracker to ensure the student attending onboarding arrives within the Welcome Kit Guidelines of 11 a.m. to 3:00 p.m. for transportation pick-up, and for GovTA Audits in the future", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+        {"text": "Travel Team reaches out to the onboarding student if their itinerary indicates that they will not be arriving within the Welcome Kit Guidelines to see if they can reach out to National Travel to obtain a different flight and/or justification for a later arrival", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+        {"text": "Departure Date", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+        {"text": "Travel Team tracks this information in the Contact and Verification Roster and in the Travel Tracker to ensure the student attending onboarding departs within the Welcome Kit Guidelines of 11 a.m. to 3:00 p.m. for airport departures, and for GovTA Audits in the future", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+        {"text": "Travel Team reaches out to the onboarding student if their itinerary indicates that they will not be departing within of the Welcome Kit Guidelines to see if they can reach out to National Travel to obtain a different flight and/or justification for a earlier/later departure", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+        {"text": "Onboarding Travel Authorization Number", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+        {"text": "WCB Team creates the first Onboarding Travel Authorization from the Itineraries Folder saved in the Teams Channel under Onboarding Travel for the corresponding Pay Period by Last name (working with WCB to reference their SOPs)", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+        {"text": "Travel Team tracks and coordinates with WCB Team to make sure all ONBD Authorizations are completed within the first week of Onboarding and Orientation", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+        {"text": "Onboarding Travel Voucher (VCH) Number", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+        {"text": "Once the TA is in ACCEPT the new employee calls the Travel Service Center to voucher out.", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+        {"text": "The new employee can now make appointment with the Travel Service Center using the �Booking Tool� Is there a handout? Or slide? The CONCUR team adds appointment date/time and status to spreadsheet?", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+        {"text": "The Travel Team verifies that all vouchers are in ACCEPT daily by reviewing the auto generated report named 41JDSA VCH to AUTH Comparison submitted by BMO (comes out Mondays, Wednesdays, and Fridays) and Concur to make sure all vouchers are in ACCEPT", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+        {"text": "Note: Travel Policy Manual Guidelines (pg.84) Submitting Travel Vouchers for travel expenses no later than five business days following completion of travel in accordance with agency travel policy.", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+        {"text": "d. The Travel Team will reach out by email (FEMA and personal email) and phone (FEMA and    personal phone) if voucher is not in ACCEPT, e.g. returned to traveler, receipt required", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+        {"text": "Onboarding Travel Notes", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+        {"text": "WCB and Travel Team uses this if needed for additional or requested information", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+        {"text": "Columns S through X of Travel Tracker are only used for Onward Movement (OWM). If Onboarding Students onward move directly to a disaster under a Special Onboarding Session, the travel team tracks the following due to DR funding the Onboarders travel and S&B:", "ilvl": 0, "highlighted": False, "highlight_color": "yellow"},
+        {"text": "OWM-Disaster Number", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+        {"text": "Which Disaster (DR) are they onward moving to from FIWA Onboarding", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+        {"text": "OWM-Duty Station Location", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+        {"text": "Travel Day", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+        {"text": "OWM Notes (If needed)", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+        {"text": "OWM BLKT Number", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+        {"text": "Onboarder will be required to be added to the DR BLKT-Completed by Travel Services Team", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+        {"text": "OWM Authorization #", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+        {"text": "OWM Authorization Amount", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+        {"text": "Booking Tool (Concur Travel Team)", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+        {"text": "Onboarders Schedule Date", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+        {"text": "Onboarder Attended/No Show", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+        {"text": "Prepare for the Travel Tracker for the next Onboarding in Two Weeks", "ilvl": 0, "highlighted": False, "highlight_color": "yellow"},
+    ],
+
+    "s4_roles": [
+        "HR: Provides EIN information from Finance SharePoint once all HR Paperwork is uploaded in the Finance system.",
+        "Travel Services: Creates Concur Profiles in Concur once EINs are entered into the Finance System.",
+        "Travel Team: Loads Employee Type, Last Name, First Name, Middle Initial, personal phone numbers, POV Miles/Meet the Bus Miles from the Contact and Verification Roster; tracks arrival and departure dates; captures FEMA email addresses and personal phone numbers; coordinates with WCB Team; verifies vouchers; reaches out to onboarding students for travel questions or requests; tracks and coordinates ONBD Authorizations; tracks Onward Movement details.",
+        "FEMA HQ IT: Creates Onboarders FEMA email address on the Sunday of arrival and provides those to FIWA Onboarding team.",
+        "Workforce Coordination Branch (WCB): Utilizes POV/Meet the Bus Mileage information when creating first TA; creates the first Onboarding Travel Authorization; coordinates with Travel Team.",
+        "BMO: Submits auto generated report named 41JDSA VCH to AUTH Comparison for voucher verification.",
+        "CONCUR team: Adds appointment date/time and status to spreadsheet.",
+        "Onboarding Student: Provides travel information; may be contacted for travel questions or requests; calls Travel Service Center to voucher out; may move onward to disaster under Special Onboarding Session.",
+        "Travel Service Center: Receives calls from new employees to voucher out; schedules appointments using Booking Tool.",
+    ],
+
+    "s5_materials": "Required materials and tools include: Travel Tracker Excel Spreadsheet, Teams-FIWA Onboarding Channel, webTA/Gov TA Audits Channel, Finance SharePoint, Contact and Verification Roster, Concur, Itineraries Folder, Booking Tool, 41JDSA VCH to AUTH Comparison report, Travel Policy Manual Guidelines, DR BLKT, Onboarding Travel Authorization, Onboarding Travel Voucher, FEMA email addresses, personal phone numbers.",
+
+    "s7_guidelines": [
+        "Limit access to personal information such as names, email addresses, and phone numbers captured in the Travel Tracker and Contact and Verification Roster.",
+        "Ensure travel vouchers are submitted no later than five business days following completion of travel in accordance with agency travel policy.",
+        "Verify all vouchers are in ACCEPT status daily using the 41JDSA VCH to AUTH Comparison report and Concur.",
+        "Coordinate with WCB Team to ensure all ONBD Authorizations are completed within the first week of Onboarding and Orientation.",
+        "Document any travel questions, requests, or additional information in Onboarding Travel Notes for future reference.",
+        "For Onward Movement to disasters, track DR funding and S&B details accurately in the Travel Tracker.",
+    ],
+
+    "s3_supersession": "This document does not supersede any existing FEMA doctrine.",
+}
+
+This format follows your prompt conventions exactly. If you need this in a different structure or want a specific section expanded, let me know.
+
+
+# JENNY Config - CBA RECONCILATION SOP
+# Generated by Phase 0 extraction from source draft
+
+JENNY_CONFIG = {
+    "full_title": "Onboarding &amp; Orientation Travel Job Aid - CBA RECONCILATION",
+    "short_title": "CBA RECONCILATION",
+    "structure_type": "single",
+    "cover_date": "February 2026",
+    "author": "JENNY-v13",
+    "gen_date": "02/24/2026",
+
+    "extraction_notes": [
+        "SPELLING: Source title contains 'RECONCILATION' (missing second 'I'). Preserved verbatim per v13 rules. Confirm with SOP owner whether this is intentional.",
+        "CASING: Source title uses ALL CAPS for 'CBA RECONCILATION'. Preserved verbatim. Confirm with SOP owner.",
+        "HIGHLIGHTING: Step containing '(highlighted to go back and review the level of detail needed here)' is marked highlighted=True with default highlight_color='yellow' based on the in-line note; original highlight color is unknown from the text-only source.",
+        "TITLE STRUCTURE: 'FEMA Incident Workforce Academy (FIWA) Job Aid' appears twice as a header before the procedure title. Full_title uses only 'Onboarding & Orientation Travel Job Aid' and 'CBA RECONCILATION'. Confirm with SOP owner that this matches the intended SOP title.",
+    ],
+
+    "purpose": "Reconcile CBA charges that have not been reimbursed through Concur Travel for rescheduled/cancelled onboarding attendees being tracked by the CBA Payment Services Section.",
+
+    "scope": "This SOP applies to the Travel Team review of FIWA Outstanding CBA Charges and updates to the CBA Spreadsheet, including verifying Passenger Name information using the Contact and Verification Roster, coordinating TA/VCH and amended TA actions with the new employee and onboarder, and coordinating with the CBA Team, Budget Team, and CBA Reconciliation Team to support Manual Pay actions using IFMIS.",
+
+    "s6_intro": "Request from CBA Team to review and reconcile all CBA charges that are not accounted for under CONCUR TAs and Vouchers",
+
+    "s6_steps": [
+        {"text": "Travel Team and the Section Chief are copied on the request received monthly for FIWA Outstanding CBA Charges to review", "ilvl": 0, "highlighted": False, "highlight_color": "yellow"},
+        {"text": "The items that are reviewed are the following:", "ilvl": 0, "highlighted": False, "highlight_color": "yellow"},
+        {"text": "Passenger (Onboarders) Last Name, First Name", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+        {"text": "Transaction Date", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+        {"text": "Transaction Post Date", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+        {"text": "Authorization Number", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+        {"text": "Transaction Reference Number", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+        {"text": "Merchant Name e.g. Agent Fee, Hotel Charges,", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+        {"text": "Cost", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+        {"text": "Status", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+        {"text": "Action/Comment", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+        {"text": "The Travel Team reviews each listed Passenger Name first in the most updated Contact and Verification Roster to make sure the new hire did not cancel or reschedule after they made National Travel Reservations", "ilvl": 0, "highlighted": False, "highlight_color": "yellow"},
+        {"text": "If the new hire did not onboard after they made National Travel Reservations, the travel team will make a note on the CBA Spreadsheet under Action/Comment stating FIWA Manual Pay (this is typically for a NT fee)", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+        {"text": "If new hire onboarded, and they have TA/VCH for Onboarding and may have not included a National Travel Fee, the Travel Team will reach out to the new employee and have them amend their TA or we can assist with amending the TA and email the onboarder to re-sign the amended TA for processing", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+        {"text": "If the new employee resigns after onboarding and after the CBA report is received, Travel Team could sign on behalf of the employee so the fee could be reimbursed. (highlighted to go back and review the level of detail needed here)", "ilvl": 2, "highlighted": True, "highlight_color": "yellow"},
+        {"text": "Once all line items have been reviewed and Action/Comments have been updated, the Travel team will total any CITI Cost that applies and send a request to the Budget Team to make sure funds are available in IFMIS for the CBA Team to request Manual Pay for charges not paid", "ilvl": 0, "highlighted": False, "highlight_color": "yellow"},
+        {"text": "The Travel Team then forwards the spreadsheet, amount, and line of accounting information to the CBA Reconciliation Team for review and action", "ilvl": 0, "highlighted": False, "highlight_color": "yellow"},
+    ],
+
+    "s4_roles": [
+        "Travel Team: Reviews FIWA Outstanding CBA Charges, verifies Passenger Name details using the Contact and Verification Roster, updates the CBA Spreadsheet Action/Comment and Action/Comments fields, totals any CITI Cost, coordinates with the Budget Team on IFMIS funds availability, and forwards the spreadsheet, amount, and line of accounting information to the CBA Reconciliation Team for review and action.",
+        "Section Chief: Is copied on the monthly request and provides oversight for the review and reconciliation actions.",
+        "CBA Team: Requests review of FIWA Outstanding CBA Charges and uses the reconciliation information to support Manual Pay for charges not paid.",
+        "Budget Team: Confirms that funds are available in IFMIS for Manual Pay actions.",
+        "CBA Reconciliation Team: Reviews the forwarded spreadsheet, amount, and line of accounting information and completes reconciliation actions.",
+        "New employee: Amends TA or TA/VCH when requested and re-signs an amended TA for processing.",
+    ],
+
+    "s5_materials": "Required materials and tools include: FIWA Outstanding CBA Charges spreadsheet, Contact and Verification Roster, CBA Spreadsheet including Action/Comment and Action/Comments, TA/VCH and TA records including amended TA, CBA report, spreadsheet amount and line of accounting information, IFMIS for confirming funds availability, and CITI Cost totals.",
+
+    "s7_guidelines": [
+        "Limit access to Passenger Name information and other onboarding details used in FIWA Outstanding CBA Charges and the CBA Spreadsheet.",
+        "Document review outcomes in the CBA Spreadsheet Action/Comment or Action/Comments field before forwarding to the CBA Reconciliation Team.",
+        "Confirm the spreadsheet amount, CITI Cost total, and line of accounting information before coordinating Manual Pay actions and before verifying funds availability in IFMIS with the Budget Team.",
+        "When a TA/VCH or amended TA requires signature, ensure the amended TA is re-signed by the new employee or onboarder prior to processing.",
+    ],
+
+    "s3_supersession": "This document does not supersede any existing FEMA doctrine.",
+}
+
+JENNY_CONFIG = { "full_title": "FIWA GOVTA Job Aid", "short_title": "FIWA GOVTA Job Aid", "structure_type": "single", "cover_date": "February 2026", "author": "JENNY-v13", "gen_date": "02/24/2026",
+ Copy
+"extraction_notes": [
+    "CASING: Source title 'FIWA GOVTA Job Aid' uses GOVTA in all caps. Preserved verbatim. Confirm with SOP owner.",
+    "TITLE STRUCTURE: 'FEMA Incident Workforce Academy (FIWA) Job Aid' appears twice as a header before 'FIWA GOVTA Job Aid'. full_title uses only 'FIWA GOVTA Job Aid'. Confirm this matches the intended SOP title.",
+    "SCOPE: No explicit scope section was present; scope was generated from Section 6 content per v13 rules.",
+    "HIERARCHY: Steps under 'Research each person�s information for accuracy' and 'Based on type of travel, verify hours charged:' were nested by inference (DTS Deployer lookup, Training>Training Participants filters, travel-type details, and conditional bucket actions). SOP owner should confirm the intended step hierarchy.",
+    "HIGHLIGHTING: Original document highlighting (if any) could not be detected from the text-only source; all steps are marked highlighted=False with default highlight_color='yellow'.",
+],
+
+"purpose": "To ensure accounting codes and hours charged are accurate and appropriately funded for all FIWA training.",
+
+"scope": "This SOP applies to FIWA Travel personnel and the FIWA Travel Team for uploading PACS Report information to the GovTA Audit FYXX spreadsheet each pay period, researching each person�s information for accuracy using DTS Deployer and Concur, verifying hours charged based on travel type, and coordinating corrections and bucket actions with WCB and HR for FIWA training.",
+
+"s6_intro": "Upon release of the most updated PACS Report, FIWA Travel personnel will upload the information to the GovTA Audit FYXX spreadsheet each pay period:",
+
+"s6_steps": [
+    {"text": "Create the following columns and upload relevant information from the PACS Report (a.-h.) to the Teams GovTA Audit FYXX spreadsheet:", "ilvl": 0, "highlighted": False, "highlight_color": "yellow"},
+    {"text": "Employee Full Name", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+    {"text": "Pay Plan (e.g., CORE, IM, PFT)", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+    {"text": "Process Pay Period (PP) (PP charge was processed/corrected/added)", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+    {"text": "Covered Year PP (PP the time is charged)", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+    {"text": "Transaction Code Description (e.g., OT, S&B)", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+    {"text": "Transaction Hours Week 1", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+    {"text": "Transaction Hours Week 2", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+    {"text": "PP Hours (total hours charged)", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+    {"text": "Needs Correction (Y/N)", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+    {"text": "Recommended Hours to Correct", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+    {"text": "Bucket (category of correction)", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+    {"text": "NFIP/REPP (FIWA pays for this employee-type training)", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+    {"text": "Current Action Office (who is responsible for follow-up research)", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+    {"text": "Correction Made (PP)", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+    {"text": "Notes (details of each action must be logged)", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+    {"text": "Research each person�s information for accuracy", "ilvl": 0, "highlighted": False, "highlight_color": "yellow"},
+    {"text": "Verify attendance in DTS Deployer by:", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+    {"text": "Entering in the Resources Tab>Personnel>Last Name, First Name", "ilvl": 2, "highlighted": False, "highlight_color": "yellow"},
+    {"text": "Looking under Deployments and Training tabs to verify the training dates occurred within the PP listed in PACS Report", "ilvl": 2, "highlighted": False, "highlight_color": "yellow"},
+    {"text": "If unable to verify as stated above, student can be looked up under the Training>Training Participants", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+    {"text": "Under Filters, change to ALL under Participant Type and Status", "ilvl": 2, "highlighted": False, "highlight_color": "yellow"},
+    {"text": "Change date parameter to the PP before current transaction", "ilvl": 2, "highlighted": False, "highlight_color": "yellow"},
+    {"text": "Verify status of student (employee type, attached to a disaster, etc.). If coming from and returning to the same disaster, hours and OT will be charged to the disaster.", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+    {"text": "Ensure student did not charge to training if they are FTE (e.g., GS, CORE, IT). Training will be charged to the student�s home base code (HBC). Check to see if this is an instructor (Training>Training Participants). If so, they are allowed up to 7 FIWA-paid OT hours for each week of instruction. The following FTE students/instructors will be paid by FIWA:", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+    {"text": "NFIP (floodplain)", "ilvl": 2, "highlighted": False, "highlight_color": "yellow"},
+    {"text": "REPP (radiological)", "ilvl": 2, "highlighted": False, "highlight_color": "yellow"},
+    {"text": "For Reservists (RSV) and NFIP/REPP FTEs, find training attended in the student/instructor�s Concur account (if travel was utilized) (Profile>Book Travel for Any User> Name).", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+    {"text": "Based on type of travel, verify hours charged:", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+    {"text": "POV: mileage from ROR to TDY location, typically mileage divided by 60 (mph). If a map is included, the quickest route time should be used.", "ilvl": 2, "highlighted": False, "highlight_color": "yellow"},
+    {"text": "Flying: Student is allowed time for the trip to the closest airport, 2 hours pre-flight, flight time, and 2 hours for travel from ATL airport to the training facility (with exceptions for weather delays/mechanical issues). Return hours include trip to the ATL airport, 2 hours pre-flight, flight time, and trip from the airport to ROR.", "ilvl": 2, "highlighted": False, "highlight_color": "yellow"},
+    {"text": "Meet the Bus (MTB): If student is local to Atlanta airport (within 50 mi), they have the option to be dropped off at the airport (e.g., taxi, rideshare, friend, family). Early arrivals (prior to 11 a.m.), will not be compensated for bus wait time.", "ilvl": 2, "highlighted": False, "highlight_color": "yellow"},
+    {"text": "Total the hours using the itinerary, Uber/taxi receipts, mileage, maps, and class hours.", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+    {"text": "Once travel and class hours have been totaled, verify they are close to the hours charged. If there were travel delays, there should be a note in the voucher and timesheet (verified by HR).", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+    {"text": "If the hours are over by 3 or more hours, make a note in the spreadsheet, mark the hours in question (Recommended hours to correct column), mark the bucket with �Overcharged OT� or �Overcharged Travel� and highlight the row blue. WCB will ask for justification for these cases.", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+    {"text": "If the student came from and returned to the same disaster, make a note in the spreadsheet, mark the hours in question (Recommended hours to correct column), mark the bucket with �DR Chargeback,� and highlight the row yellow. HR will request the change of account code.", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+    {"text": "If the student is an FTE and incorrectly charged FIWA, make a note in the spreadsheet, mark the hours in question (Recommended hours to correct column), mark the bucket with �FTE Charge Base Code,� and highlight the row yellow. HR will request the change of account code.", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+    {"text": "Changes will be made the same manner for all buckets (blue row�requires WCB justification; yellow row�HR attention/remediation). If the rows do not require changes, the row will remain white. Examples of these buckets include:", "ilvl": 0, "highlighted": False, "highlight_color": "yellow"},
+    {"text": "EEEM Training", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+    {"text": "IS PTB", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+    {"text": "NFIP", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+    {"text": "REPP", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+    {"text": "Once the row has been resolved (e.g., reimbursed, justified), the FIWA Travel Team will turn the row back to white.", "ilvl": 0, "highlighted": False, "highlight_color": "yellow"},
+],
+
+"s4_roles": [
+    "FIWA Travel personnel: Upload the most updated PACS Report information to the GovTA Audit FYXX spreadsheet each pay period.",
+    "FIWA Travel Team: Turns resolved rows in the GovTA Audit FYXX spreadsheet back to white once they have been reimbursed or justified.",
+    "Student: Has attendance and training dates verified in DTS Deployer and Training>Training Participants, may travel by POV, flying, or Meet the Bus (MTB), and may have hours and OT charged to a disaster or FIWA.",
+    "Instructor: May be identified in Training>Training Participants and is allowed up to 7 FIWA-paid OT hours for each week of instruction.",
+    "Reservists (RSV): Have training attended located in the student/instructor�s Concur account when travel is utilized and have their charged hours reviewed for accuracy.",
+    "NFIP/REPP FTEs: Are FTE students/instructors whose FIWA-paid training and travel hours are identified in Concur and may be paid by FIWA.",
+    "WCB: Reviews cases where hours are over by 3 or more hours on blue-highlighted rows and asks for justification for these cases.",
+    "HR: Verifies notes in vouchers and timesheets regarding travel delays and requests change of account code for DR Chargeback and FTE Charge Base Code bucket situations.",
+    "Current Action Office: Is identified in the GovTA Audit FYXX spreadsheet as the office responsible for follow-up research on each employee�s entry.",
+],
+
+"s5_materials": "Required materials and tools include: the most updated PACS Report, the Teams GovTA Audit FYXX spreadsheet, DTS Deployer including the Resources and Training>Training Participants views, the student/instructor�s Concur account and Profile>Book Travel for Any User screen, itineraries, Uber/taxi receipts, mileage records, maps, class hours, vouchers, and timesheets.",
+
+"s7_guidelines": [
+    "Protect employee information in the GovTA Audit FYXX spreadsheet, including Employee Full Name, Pay Plan, and PP hours, by limiting access to personnel performing FIWA GovTA audit activities.",
+    "Ensure that details of each action are logged in the Notes column so that all research, corrections, and decisions are documented.",
+    "Use DTS Deployer and Training>Training Participants to verify attendance and training dates match the PACS Report pay periods before making any corrections.",
+    "When verifying travel-related hours, use itineraries, Uber/taxi receipts, mileage, maps, and class hours to confirm that total hours are close to the hours charged and ensure any travel delays are documented in the voucher and timesheet.",
+    "Apply bucket categories and row highlight colors consistently, using blue rows with Overcharged OT or Overcharged Travel for WCB justification and yellow rows with DR Chargeback or FTE Charge Base Code for HR attention and remediation.",
+    "After hours have been reimbursed or justified for a given row, ensure the FIWA Travel Team returns the row color to white to indicate resolution.",
+],
+
+"s3_supersession": "This document does not supersede any existing FEMA doctrine.",
+}
+
+
+JENNY Config - TRAVEL TRACKER SOP
+Generated by Phase 0 extraction from source draft
+JENNY_CONFIG = { "full_title": "Onboarding & Orientation Travel Job Aid - TRAVEL TRACKER", "short_title": "TRAVEL TRACKER", "structure_type": "single", "cover_date": "February 2026", "author": "JENNY-v13", "gen_date": "02/24/2026",
+ Copy
+"extraction_notes": [
+    "CASING: Source title uses all caps for 'TRAVEL TRACKER'. Preserved verbatim. Confirm with SOP owner.",
+    "TITLE STRUCTURE: 'FEMA Incident Workforce Academy (FIWA) Job Aid' appears twice as a header before 'Onboarding & Orientation Travel Job Aid' and 'TRAVEL TRACKER'. full_title is set to 'Onboarding & Orientation Travel Job Aid - TRAVEL TRACKER' following the pattern used in related job aids. Confirm this matches the intended SOP title.",
+    "SCOPE: No explicit scope section was present; scope was generated from Section 6 content per v13 rules.",
+    "HIERARCHY: Column names (EIN through Onboarding Travel Notes) were treated as sub-steps under a main step describing the Travel Tracker location, with their explanatory sentences nested one level deeper. The Onward Movement (OWM) section beginning 'Columns S through X of Travel Tracker are only used for Onward Movement (OWM)...' was treated as a new main step with OWM column names as sub-steps and their descriptions nested under them. SOP owner should confirm this reflects the intended hierarchy.",
+    "INLINE COMMENTARY: Text such as '(working with WCB to reference their SOPs)' and 'Is there a handout? Or slide?' was preserved verbatim within the relevant steps; SOP owner may wish to revise or remove these draft comments.",
+    "HIGHLIGHTING: Original document highlighting (if any) could not be detected from the text-only source; all steps are marked highlighted=False with default highlight_color='yellow'.",
+],
+
+"purpose": "Created to ensure, inform and administratively record each Onboarder�s incoming and outgoing travel.",
+
+"scope": "This SOP applies to the Travel Team, HR, FEMA HQ IT, FIWA Onboarding team, Workforce Coordination Branch (WCB), WCB Team, Travel Services, Travel Services Team, Travel Service Center, CONCUR team, National Travel, onboarding students, new employees, and onboarders for creating and maintaining the Travel Tracker for each Pay Period of Onboarding and Orientation, loading information from the Contact and Verification Roster and Finance systems, tracking Arrival Date and Departure Date against Welcome Kit Guidelines, coordinating Onboarding Travel Authorization and Onboarding Travel Voucher (VCH) processes, and tracking Columns S through X of Travel Tracker for Onward Movement (OWM) when DR is funding the Onboarders travel and S&B.",
+
+"s6_intro": "Upon release of closed Onboarding and Orientation roster, the Travel Tracker is created for that Pay Period of Onboarding and Orientation.",
+
+"s6_steps": [
+    {"text": "The Travel Tracker is kept on Teams-FIWA Onboarding and webTA/Gov TA Audits Channel-Onboarding Travel Excel Spreadsheet Breakdown of each item captured listed below:", "ilvl": 0, "highlighted": False, "highlight_color": "yellow"},
+    {"text": "EIN", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+    {"text": "HR provides this information from Finance SharePoint once all HR Paperwork is uploaded in the Finance system", "ilvl": 2, "highlighted": False, "highlight_color": "yellow"},
+    {"text": "Concur Profile", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+    {"text": "Once The EINs are entered into the Finance System, Travel Services creates the Concur Profiles in Concur", "ilvl": 2, "highlighted": False, "highlight_color": "yellow"},
+    {"text": "Employee Type", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+    {"text": "Travel Team loads the Employee Type from the Contact and Verification Roster", "ilvl": 2, "highlighted": False, "highlight_color": "yellow"},
+    {"text": "Last Name", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+    {"text": "Travel Team loads the Last Names from the Contact and Verification Roster", "ilvl": 2, "highlighted": False, "highlight_color": "yellow"},
+    {"text": "First Name", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+    {"text": "Travel Team loads the First Names from the Contact and Verification Roster", "ilvl": 2, "highlighted": False, "highlight_color": "yellow"},
+    {"text": "Middle Initial", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+    {"text": "Travel Team loads the Middle Initial from the Contact and Verification Roster", "ilvl": 2, "highlighted": False, "highlight_color": "yellow"},
+    {"text": "FEMA Email Address", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+    {"text": "The Sunday of arrival FEMA HQ IT creates the Onboarders FEMA email address and provides those to FIWA Onboarding team and is listed in Contact and Verification Roster and copied into the Travel Tracker", "ilvl": 2, "highlighted": False, "highlight_color": "yellow"},
+    {"text": "Travel Team captures this information in case we need to reach out to them for travel questions or requests to complete any Travel Authorization (TA) or Travel Voucher requests", "ilvl": 2, "highlighted": False, "highlight_color": "yellow"},
+    {"text": "Personal Phone Number", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+    {"text": "Travel Team loads the personal phone numbers listed from the Contact and Verification Roster", "ilvl": 2, "highlighted": False, "highlight_color": "yellow"},
+    {"text": "Travel Team captures this information in case the team need to reach out to them for travel questions or requests to complete any TA or Travel Voucher requests", "ilvl": 2, "highlighted": False, "highlight_color": "yellow"},
+    {"text": "POV/Meet the Bus Mileage", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+    {"text": "Travel Team loads the POV Miles/Meet the Bus Miles listed from the Contact and Verification Roster", "ilvl": 2, "highlighted": False, "highlight_color": "yellow"},
+    {"text": "Workforce Coordination Branch (WCB) utilizes this information when creating their first TA", "ilvl": 2, "highlighted": False, "highlight_color": "yellow"},
+    {"text": "Arrival Date", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+    {"text": "Travel Team tracks this information in the Contact and Verification Roster and in the Travel Tracker to ensure the student attending onboarding arrives within the Welcome Kit Guidelines of 11 a.m. to 3:00 p.m. for transportation pick-up, and for GovTA Audits in the future", "ilvl": 2, "highlighted": False, "highlight_color": "yellow"},
+    {"text": "Travel Team reaches out to the onboarding student if their itinerary indicates that they will not be arriving within the Welcome Kit Guidelines to see if they can reach out to National Travel to obtain a different flight and/or justification for a later arrival", "ilvl": 2, "highlighted": False, "highlight_color": "yellow"},
+    {"text": "Departure Date", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+    {"text": "Travel Team tracks this information in the Contact and Verification Roster and in the Travel Tracker to ensure the student attending onboarding departs within the Welcome Kit Guidelines of 11 a.m. to 3:00 p.m. for airport departures, and for GovTA Audits in the future", "ilvl": 2, "highlighted": False, "highlight_color": "yellow"},
+    {"text": "Travel Team reaches out to the onboarding student if their itinerary indicates that they will not be departing within of the Welcome Kit Guidelines to see if they can reach out to National Travel to obtain a different flight and/or justification for a earlier/later departure", "ilvl": 2, "highlighted": False, "highlight_color": "yellow"},
+    {"text": "Onboarding Travel Authorization Number", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+    {"text": "WCB Team creates the first Onboarding Travel Authorization from the Itineraries Folder saved in the Teams Channel under Onboarding Travel for the corresponding Pay Period by Last name (working with WCB to reference their SOPs)", "ilvl": 2, "highlighted": False, "highlight_color": "yellow"},
+    {"text": "Travel Team tracks and coordinates with WCB Team to make sure all ONBD Authorizations are completed within the first week of Onboarding and Orientation", "ilvl": 2, "highlighted": False, "highlight_color": "yellow"},
+    {"text": "Onboarding Travel Voucher (VCH) Number", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+    {"text": "Once the TA is in ACCEPT the new employee calls the Travel Service Center to voucher out.", "ilvl": 2, "highlighted": False, "highlight_color": "yellow"},
+    {"text": "The new employee can now make appointment with the Travel Service Center using the �Booking Tool� Is there a handout? Or slide? The CONCUR team adds appointment date/time and status to spreadsheet?", "ilvl": 2, "highlighted": False, "highlight_color": "yellow"},
+    {"text": "The Travel Team verifies that all vouchers are in ACCEPT daily by reviewing the auto generated report named 41JDSA VCH to AUTH Comparison submitted by BMO (comes out Mondays, Wednesdays, and Fridays) and Concur to make sure all vouchers are in ACCEPT", "ilvl": 2, "highlighted": False, "highlight_color": "yellow"},
+    {"text": "Note: Travel Policy Manual Guidelines (pg.84) Submitting Travel Vouchers for travel expenses no later than five business days following completion of travel in accordance with agency travel policy.", "ilvl": 2, "highlighted": False, "highlight_color": "yellow"},
+    {"text": "d. The Travel Team will reach out by email (FEMA and personal email) and phone (FEMA and personal phone) if voucher is not in ACCEPT, e.g. returned to traveler, receipt required", "ilvl": 2, "highlighted": False, "highlight_color": "yellow"},
+    {"text": "Onboarding Travel Notes", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+    {"text": "WCB and Travel Team uses this if needed for additional or requested information", "ilvl": 2, "highlighted": False, "highlight_color": "yellow"},
+    {"text": "Columns S through X of Travel Tracker are only used for Onward Movement (OWM). If Onboarding Students onward move directly to a disaster under a Special Onboarding Session, the travel team tracks the following due to DR funding the Onboarders travel and S&B:", "ilvl": 0, "highlighted": False, "highlight_color": "yellow"},
+    {"text": "OWM-Disaster Number", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+    {"text": "Which Disaster (DR) are they onward moving to from FIWA Onboarding", "ilvl": 2, "highlighted": False, "highlight_color": "yellow"},
+    {"text": "OWM-Duty Station Location", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+    {"text": "Travel Day", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+    {"text": "OWM Notes (If needed)", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+    {"text": "OWM BLKT Number", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+    {"text": "Onboarder will be required to be added to the DR BLKT-Completed by Travel Services Team", "ilvl": 2, "highlighted": False, "highlight_color": "yellow"},
+    {"text": "OWM Authorization #", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+    {"text": "OWM Authorization Amount", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+    {"text": "Booking Tool (Concur Travel Team)", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+    {"text": "Onboarders Schedule Date", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+    {"text": "Onboarder Attended/No Show", "ilvl": 1, "highlighted": False, "highlight_color": "yellow"},
+    {"text": "Prepare for the Travel Tracker for the next Onboarding in Two Weeks", "ilvl": 0, "highlighted": False, "highlight_color": "yellow"},
+],
+
+"s4_roles": [
+    "Travel Team: Loads the Employee Type, Last Name, First Name, Middle Initial, personal phone numbers, and POV/Meet the Bus Mileage from the Contact and Verification Roster into the Travel Tracker, captures FEMA Email Address and personal phone numbers for travel questions or requests to complete any Travel Authorization (TA) or Travel Voucher requests, tracks Arrival Date and Departure Date in the Contact and Verification Roster and in the Travel Tracker, reaches out to the onboarding student if itineraries do not meet the Welcome Kit Guidelines, tracks and coordinates with WCB Team to make sure all ONBD Authorizations are completed within the first week of Onboarding and Orientation, verifies that all vouchers are in ACCEPT using the auto generated report named 41JDSA VCH to AUTH Comparison and Concur, reaches out by FEMA and personal email and phone if a voucher is not in ACCEPT, uses Onboarding Travel Notes if needed, tracks Onward Movement (OWM) information in Columns S through X of the Travel Tracker, and prepares for the Travel Tracker for the next Onboarding in Two Weeks.",
+    "HR: Provides EIN information from Finance SharePoint once all HR Paperwork is uploaded in the Finance system.",
+    "Travel Services: Creates the Concur Profiles in Concur once the EINs are entered into the Finance System.",
+    "FEMA HQ IT: Creates the Onboarders FEMA email address on the Sunday of arrival and provides those to FIWA Onboarding team so they can be listed in the Contact and Verification Roster and copied into the Travel Tracker.",
+    "FIWA Onboarding team: Receives the onboarders FEMA email address from FEMA HQ IT and has the address listed in the Contact and Verification Roster that is copied into the Travel Tracker.",
+    "Workforce Coordination Branch (WCB): Utilizes POV/Meet the Bus Mileage information when creating their first TA and uses Onboarding Travel Notes if needed for additional or requested information.",
+    "WCB Team: Creates the first Onboarding Travel Authorization from the Itineraries Folder saved in the Teams Channel under Onboarding Travel for the corresponding Pay Period by Last name and works with the Travel Team to make sure all ONBD Authorizations are completed within the first week of Onboarding and Orientation.",
+    "Onboarding student: Has Arrival Date and Departure Date tracked in the Contact and Verification Roster and in the Travel Tracker, may have itineraries that do not meet Welcome Kit Guidelines and may be asked to reach out to National Travel to obtain a different flight and/or justification for earlier or later arrival or departure.",
+    "New employee: Calls the Travel Service Center to voucher out once the TA is in ACCEPT and makes an appointment with the Travel Service Center using the �Booking Tool.�",
+    "Travel Service Center: Receives calls from the new employee to voucher out once the TA is in ACCEPT and receives appointments made using the �Booking Tool.�",
+    "CONCUR team: Adds appointment date/time and status to the spreadsheet when the new employee makes an appointment with the Travel Service Center using the �Booking Tool.�",
+    "BMO: Submits the auto generated report named 41JDSA VCH to AUTH Comparison that comes out Mondays, Wednesdays, and Fridays.",
+    "National Travel: May be contacted by the onboarding student when the Travel Team requests that they obtain a different flight and/or justification for a later or earlier/later arrival or departure.",
+    "Travel Services Team: Completes the action of adding the onboarder to the DR BLKT as indicated by the OWM BLKT Number.",
+    "Onboarder: Has FEMA Email Address created, may onward move directly to a disaster under a Special Onboarding Session with travel and S&B funded by DR, is required to be added to the DR BLKT, has an Onboarders Schedule Date, and may be recorded as Attended/No Show.",
+],
+
+"s5_materials": "Required materials and tools include: closed Onboarding and Orientation roster, Travel Tracker, Teams-FIWA Onboarding, webTA/Gov TA Audits Channel-Onboarding Travel Excel Spreadsheet, Finance SharePoint, Finance system, Concur Profiles in Concur, Contact and Verification Roster, onboarders FEMA email address, personal phone numbers, POV Miles and Meet the Bus Miles, Welcome Kit Guidelines, itineraries, Itineraries Folder saved in the Teams Channel under Onboarding Travel for the corresponding Pay Period by Last name, ONBD Authorizations and Onboarding Travel Authorization Number, Onboarding Travel Voucher (VCH) Number, Booking Tool, auto generated report named 41JDSA VCH to AUTH Comparison submitted by BMO, Travel Policy Manual Guidelines (pg.84), DR BLKT, and Columns S through X of Travel Tracker for Onward Movement (OWM).",
+
+"s7_guidelines": [
+    "Limit access to EIN, onboarders FEMA email address, personal phone numbers, and other onboarder information in the Travel Tracker, Contact and Verification Roster, and webTA/Gov TA Audits Channel-Onboarding Travel Excel Spreadsheet to personnel who need this information for onboarding travel processing.",
+    "Use the Welcome Kit Guidelines of 11 a.m. to 3:00 p.m. when reviewing Arrival Date and Departure Date in the Travel Tracker and Contact and Verification Roster, and contact the onboarding student and National Travel when itineraries do not meet these guidelines.",
+    "Ensure Onboarding Travel Authorization Number and Onboarding Travel Voucher (VCH) Number information is accurately tracked in the Travel Tracker and verified using the auto generated report named 41JDSA VCH to AUTH Comparison and Concur so that all vouchers are in ACCEPT.",
+    "Follow Travel Policy Manual Guidelines (pg.84) by submitting Travel Vouchers for travel expenses no later than five business days following completion of travel, and have the Travel Team reach out by FEMA and personal email and phone when a voucher is not in ACCEPT, for example when it is returned to traveler or a receipt is required.",
+    "Use Onboarding Travel Notes and Columns S through X of Travel Tracker only for their stated purposes, including tracking Onward Movement (OWM) when DR is funding the Onboarders travel and S&B, and ensure fields such as OWM-Disaster Number, OWM BLKT Number, OWM Authorization #, and OWM Authorization Amount are completed accurately.",
+    "Maintain the Itineraries Folder, DR BLKT entries, Booking Tool records, and Onboarder Attended/No Show status so that all documentation supporting travel, authorizations, vouchers, and onward movement is available for future GovTA Audits.",
+],
+
+"s3_supersession": "This document does not supersede any existing FEMA doctrine.",
+}
+
+

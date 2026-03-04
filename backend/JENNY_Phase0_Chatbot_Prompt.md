@@ -168,8 +168,4 @@ JENNY_CONFIG = {
     "s3_supersession": "This document does not supersede any existing FEMA doctrine.",
 }
 
-Now read the attached source draft and produce the config. Output ONLY the Python file.
-
----
-
 I will attach or paste the source SOP draft below. Read it and output ONLY the Python config file. No other text.

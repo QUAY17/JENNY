@@ -118,6 +118,48 @@ def build_paragraph(text, para_id, ilvl=None, highlighted=False, highlight_color
         f'{ppr}<w:r>{rpr}<w:t xml:space="preserve">{t}</w:t></w:r></w:p>'
     )
 
+def build_image_paragraph(para_id, rel_id, width_emu, height_emu, ilvl=0):
+    """Build an OOXML paragraph containing an inline image."""
+    doc_pr_id = abs(hash(para_id)) % 999999
+    # Indent to match numbered list levels: 720 twips (0.5in) per level
+    indent = ""
+    if ilvl > 0:
+        left_twips = 720 * (ilvl + 1)  # +1 to match numbered list hanging indent
+        indent = f'<w:ind w:left="{left_twips}"/>'
+    return (
+        f'<w:p w14:paraId="{para_id}" w14:textId="{para_id}" '
+        f'w:rsidR="00000001" w:rsidRDefault="00000001">'
+        f'<w:pPr><w:pStyle w:val="FEMANormal"/>{indent}</w:pPr>'
+        f'<w:r><w:rPr><w:noProof/></w:rPr>'
+        f'<w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0">'
+        f'<wp:extent cx="{width_emu}" cy="{height_emu}"/>'
+        f'<wp:effectExtent l="0" t="0" r="0" b="0"/>'
+        f'<wp:docPr id="{doc_pr_id}" name="Picture {doc_pr_id}"/>'
+        f'<wp:cNvGraphicFramePr>'
+        f'<a:graphicFrameLocks xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" noChangeAspect="1"/>'
+        f'</wp:cNvGraphicFramePr>'
+        f'<a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">'
+        f'<a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">'
+        f'<pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">'
+        f'<pic:nvPicPr>'
+        f'<pic:cNvPr id="{doc_pr_id}" name="Picture {doc_pr_id}"/>'
+        f'<pic:cNvPicPr/>'
+        f'</pic:nvPicPr>'
+        f'<pic:blipFill>'
+        f'<a:blip r:embed="{rel_id}"/>'
+        f'<a:stretch><a:fillRect/></a:stretch>'
+        f'</pic:blipFill>'
+        f'<pic:spPr>'
+        f'<a:xfrm><a:off x="0" y="0"/><a:ext cx="{width_emu}" cy="{height_emu}"/></a:xfrm>'
+        f'<a:prstGeom prst="rect"><a:avLst/></a:prstGeom>'
+        f'</pic:spPr>'
+        f'</pic:pic>'
+        f'</a:graphicData>'
+        f'</a:graphic>'
+        f'</wp:inline></w:drawing></w:r></w:p>'
+    )
+
+
 def build_flag(text, para_id):
     """Build a review flag paragraph (italic + yellow highlight in pPr and rPr)."""
     t = xml_escape(text)
@@ -298,31 +340,55 @@ def run_pipeline(config, template_path, output_path, instructions_path=None):
     # Build S6 content
     s6_xml = ""
     p_counter = 0
+    image_rels = []  # track new image relationships to add
 
     # Intro paragraph (no numbering)
     if cfg["s6_intro"]:
         s6_xml += build_paragraph(cfg["s6_intro"], pid(p_counter))
         p_counter += 1
 
-    # Steps
+    # Steps (text and image entries)
     src_ilvl0 = src_ilvl1 = src_ilvl2 = src_ilvl3 = 0
     src_highlights = 0
+    src_images = 0
+    img_rel_counter = 100  # start rIds at 100 to avoid collisions with template
+
     for step in cfg["s6_steps"]:
-        s6_xml += build_paragraph(
-            step["text"], pid(p_counter),
-            ilvl=step["ilvl"],
-            highlighted=step.get("highlighted", False),
-            highlight_color=step.get("highlight_color", "yellow")
-        )
-        if step["ilvl"] == 0: src_ilvl0 += 1
-        elif step["ilvl"] == 1: src_ilvl1 += 1
-        elif step["ilvl"] == 2: src_ilvl2 += 1
-        elif step["ilvl"] == 3: src_ilvl3 += 1
-        if step.get("highlighted"): src_highlights += 1
-        p_counter += 1
+        step_type = step.get("type", "text")
+
+        if step_type == "image":
+            rel_id = f"rId{img_rel_counter}"
+            img_rel_counter += 1
+            # Scale image to max ~4 inches wide (3657600 EMU), preserve aspect ratio
+            w = step.get("width_emu", 4572000)
+            h = step.get("height_emu", 3429000)
+            max_w = 3657600
+            if w > max_w:
+                scale = max_w / w
+                w = max_w
+                h = int(h * scale)
+            s6_xml += build_image_paragraph(
+                pid(p_counter), rel_id, w, h, ilvl=step.get("ilvl", 0),
+            )
+            image_rels.append({"rel_id": rel_id, "src": step["src"]})
+            src_images += 1
+            p_counter += 1
+        else:
+            s6_xml += build_paragraph(
+                step["text"], pid(p_counter),
+                ilvl=step["ilvl"],
+                highlighted=step.get("highlighted", False),
+                highlight_color=step.get("highlight_color", "yellow")
+            )
+            if step["ilvl"] == 0: src_ilvl0 += 1
+            elif step["ilvl"] == 1: src_ilvl1 += 1
+            elif step["ilvl"] == 2: src_ilvl2 += 1
+            elif step["ilvl"] == 3: src_ilvl3 += 1
+            if step.get("highlighted"): src_highlights += 1
+            p_counter += 1
 
     doc = doc[:insert_at] + s6_xml + doc[insert_at:]
-    print(f"S6 inserted. Source ilvl: 0={src_ilvl0}, 1={src_ilvl1}, 2={src_ilvl2}, 3={src_ilvl3}, highlights={src_highlights}")
+    print(f"S6 inserted. Source ilvl: 0={src_ilvl0}, 1={src_ilvl1}, 2={src_ilvl2}, 3={src_ilvl3}, highlights={src_highlights}, images={src_images}")
     try:
         ET.fromstring(doc.encode("utf-8"))
     except ET.ParseError as e:
@@ -556,6 +622,37 @@ def run_pipeline(config, template_path, output_path, instructions_path=None):
     pathlib.Path("./unpacked/word/document.xml").write_text(doc, encoding="utf-8")
     pathlib.Path("./unpacked/word/header5.xml").write_text(hdr, encoding="utf-8")
 
+    # --- IMAGE HANDLING: Copy files and update rels ---
+    if image_rels:
+        media_dir = pathlib.Path("./unpacked/word/media/")
+        media_dir.mkdir(exist_ok=True)
+        images_src = pathlib.Path("./images/")
+
+        for img in image_rels:
+            src = images_src / img["src"]
+            dst = media_dir / img["src"]
+            if src.exists():
+                shutil.copy2(str(src), str(dst))
+                print(f"  Copied image: {img['src']}")
+            else:
+                print(f"  WARNING: Image not found: {src}")
+
+        # Add relationship entries to document.xml.rels
+        rels_path = pathlib.Path("./unpacked/word/_rels/document.xml.rels")
+        rels_content = rels_path.read_text(encoding="utf-8")
+
+        new_rels = ""
+        for img in image_rels:
+            new_rels += (
+                f'<Relationship Id="{img["rel_id"]}" '
+                f'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" '
+                f'Target="media/{img["src"]}"/>'
+            )
+
+        rels_content = rels_content.replace("</Relationships>", new_rels + "</Relationships>")
+        rels_path.write_text(rels_content, encoding="utf-8")
+        print(f"  Added {len(image_rels)} image relationship(s) to document.xml.rels")
+
 
     # ============================================================
     # FULL VALIDATION GATE (matches v13 Phase 7/8 harness)
@@ -669,10 +766,16 @@ def run_pipeline(config, template_path, output_path, instructions_path=None):
         if src_ilvl3 > 0:
             chk("S6", f"Total ilvl3: {fi3} == {BASELINE_ILVL3 + src_ilvl3}", fi3 == BASELINE_ILVL3 + src_ilvl3)
 
-        # Key content phrases (first 8 steps)
-        for step in cfg["s6_steps"][:8]:
+        # Key content phrases (first 8 text steps, skip image entries)
+        text_steps_for_check = [s for s in cfg["s6_steps"] if s.get("type", "text") == "text"]
+        for step in text_steps_for_check[:8]:
             phrase = step["text"][:45]
             chk("S6", f"Contains '{phrase}'", step["text"][:30] in s6_region)
+
+        # Image count
+        if src_images > 0:
+            img_count = s6_region.count("<w:drawing")
+            chk("S6", f"Images: {img_count} == {src_images}", img_count == src_images)
 
         # Highlighted steps (count all highlight colors: yellow, cyan, etc.)
         import re as _re

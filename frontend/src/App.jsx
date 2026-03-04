@@ -99,14 +99,14 @@ function LogPanel({ logs }) {
   );
 }
 
-function ConfigEditor({ config, onChange }) {
+function ConfigEditor({ config, onChange, sessionId }) {
   if (!config) return null;
 
   const renderField = (key, value, path = []) => {
     const fullPath = [...path, key];
     const pathStr = fullPath.join(".");
 
-    if (Array.isArray(value) && value.length > 0 && typeof value[0] === "object" && value[0].text !== undefined) {
+    if (Array.isArray(value) && value.length > 0 && typeof value[0] === "object" && (value[0].text !== undefined || value[0].src !== undefined)) {
       const ilvlLabels = {
         0: "1. 2. 3.",
         1: "a. b. c.",
@@ -122,13 +122,77 @@ function ConfigEditor({ config, onChange }) {
       return (
         <div key={pathStr} style={{ marginBottom: 16 }}>
           <label style={{ display: "block", fontSize: 11, fontFamily: font, color: colors.accent, marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.05em" }}>
-            {key} ({value.length} steps)
+            {key} ({value.filter(s => (s.type || "text") === "text").length} steps{value.filter(s => s.type === "image").length > 0 ? `, ${value.filter(s => s.type === "image").length} images` : ""})
           </label>
           <div style={{ fontSize: 10, fontFamily: font, color: colors.textDim, marginBottom: 6 }}>
             Indent levels: 1. 2. 3. = Main Step | a. b. c. = Sub-step | i. ii. iii. = Sub-sub | 1. 2. 3. (nested) = Sub-sub-sub
           </div>
           <div style={{ maxHeight: 300, overflowY: "auto", border: `1px solid ${colors.border}`, borderRadius: 6, padding: 8 }}>
             {value.map((step, i) => {
+              const stepType = step.type || "text";
+
+              if (stepType === "image") {
+                return (
+                  <div key={i} style={{
+                    display: "grid", gridTemplateColumns: "70px 1fr 90px",
+                    gap: 6, marginBottom: 4, alignItems: "start",
+                    paddingLeft: (step.ilvl || 0) * 20,
+                  }}>
+                    <span style={{
+                      fontSize: 10, fontFamily: font, color: colors.accent, paddingTop: 6,
+                    }}>
+                      [Image]
+                    </span>
+                    <div style={{
+                      border: `1px solid ${colors.border}`, borderRadius: 4, padding: 4,
+                      background: colors.surfaceAlt,
+                    }}>
+                      <img
+                        src={`${API_BASE}/api/image/${sessionId}/${step.src}`}
+                        alt={step.src}
+                        style={{ maxWidth: 180, maxHeight: 140, display: "block", borderRadius: 3, objectFit: "contain" }}
+                      />
+                      <div style={{ fontSize: 10, color: colors.textDim, marginTop: 4 }}>
+                        {step.src}
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                      <select style={{
+                        padding: "4px 2px", background: colors.surfaceAlt,
+                        border: `1px solid ${colors.border}`, borderRadius: 4,
+                        color: colors.text, fontFamily: font, fontSize: 11,
+                      }}
+                        value={step.ilvl || 0}
+                        onChange={(e) => {
+                          const newSteps = [...value];
+                          newSteps[i] = { ...step, ilvl: parseInt(e.target.value) };
+                          onChange(fullPath, newSteps);
+                        }}
+                      >
+                        <option value={0}>1. 2. 3. (Main)</option>
+                        <option value={1}>a. b. c. (Sub)</option>
+                        <option value={2}>i. ii. iii. (Sub-sub)</option>
+                        <option value={3}>1. 2. 3. (Sub-sub-sub)</option>
+                      </select>
+                      <button
+                        onClick={() => {
+                          const newSteps = value.filter((_, idx) => idx !== i);
+                          onChange(fullPath, newSteps);
+                        }}
+                        style={{
+                          padding: "2px 6px", fontSize: 10, fontFamily: font,
+                          background: colors.errorBg, color: colors.error,
+                          border: `1px solid ${colors.error}`, borderRadius: 4,
+                          cursor: "pointer",
+                        }}
+                      >
+                        DELETE
+                      </button>
+                    </div>
+                  </div>
+                );
+              }
+
               const hlColor = step.highlight_color || "yellow";
               const isHighlighted = step.highlighted;
               const hlBorder = isHighlighted
@@ -307,6 +371,7 @@ export default function JennyApp() {
       const ilvlParts = [`Main(1.2.3.)=${s.ilvl0}`, `Sub(a.b.c.)=${s.ilvl1}`, `Sub-sub(i.ii.)=${s.ilvl2}`];
       if (s.ilvl3) ilvlParts.push(`Sub-sub-sub=${s.ilvl3}`);
       log(`Config: ${s.total_steps} steps (${ilvlParts.join(", ")}), ${s.highlighted} highlighted`, "success");
+      if (s.total_images) log(`Screenshots: ${s.total_images} extracted from draft`, "success");
       log(`Roles: ${s.roles}, Guidelines: ${s.guidelines}`, "success");
       if (data.model) {
         setModelLabel(data.model);
@@ -353,6 +418,7 @@ export default function JennyApp() {
       const ilvlParts = [`Main(1.2.3.)=${s.ilvl0}`, `Sub(a.b.c.)=${s.ilvl1}`, `Sub-sub(i.ii.)=${s.ilvl2}`];
       if (s.ilvl3) ilvlParts.push(`Sub-sub-sub=${s.ilvl3}`);
       log(`Config: ${s.total_steps} steps (${ilvlParts.join(", ")}), ${s.highlighted} highlighted`, "success");
+      if (s.total_images) log(`Screenshots: ${s.total_images} extracted from draft`, "success");
       log(`Roles: ${s.roles}, Guidelines: ${s.guidelines}`, "success");
       (data.issues || []).forEach(i => log(`SANITIZED: ${i}`, "info"));
 
@@ -579,7 +645,7 @@ export default function JennyApp() {
               Upload files and extract config to begin
             </div>
           )}
-          {config && <ConfigEditor config={config} onChange={handleConfigChange} />}
+          {config && <ConfigEditor config={config} onChange={handleConfigChange} sessionId={sessionId} />}
         </div>
       </div>
 

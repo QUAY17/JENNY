@@ -63,6 +63,16 @@ def sanitize_config(config):
     # Validate ilvl values and ensure highlight_color
     if "s6_steps" in config:
         for i, step in enumerate(config["s6_steps"]):
+            # Default type to "text" if missing (backwards compat)
+            if "type" not in step:
+                step["type"] = "text"
+
+            if step.get("type") == "image":
+                # Only validate ilvl for images
+                if not isinstance(step.get("ilvl"), int) or step["ilvl"] not in (0, 1, 2, 3):
+                    step["ilvl"] = 0
+                continue
+
             if not isinstance(step.get("ilvl"), int) or step["ilvl"] not in (0, 1, 2, 3):
                 config["s6_steps"][i]["ilvl"] = 0
                 issues.append(f"Reset invalid ilvl to 0 for step {i}")
@@ -112,14 +122,22 @@ def write_config_py(config, path):
             if len(val) == 0:
                 lines.append(f'    "{key}": [],')
             elif isinstance(val[0], dict):
-                # s6_steps
+                # s6_steps (text and image entries)
                 lines.append(f'    "{key}": [')
                 for item in val:
-                    text_esc = item["text"].replace("\\", "\\\\").replace('"', '\\"')
-                    ilvl = item.get("ilvl", 0)
-                    hl = item.get("highlighted", False)
-                    hl_color = item.get("highlight_color", "yellow")
-                    lines.append(f'        {{"text": "{text_esc}", "ilvl": {ilvl}, "highlighted": {hl}, "highlight_color": "{hl_color}"}},')
+                    step_type = item.get("type", "text")
+                    if step_type == "image":
+                        src_esc = item["src"].replace("\\", "\\\\").replace('"', '\\"')
+                        ilvl = item.get("ilvl", 0)
+                        w = item.get("width_emu", 4572000)
+                        h = item.get("height_emu", 3429000)
+                        lines.append(f'        {{"type": "image", "src": "{src_esc}", "ilvl": {ilvl}, "width_emu": {w}, "height_emu": {h}}},')
+                    else:
+                        text_esc = item["text"].replace("\\", "\\\\").replace('"', '\\"')
+                        ilvl = item.get("ilvl", 0)
+                        hl = item.get("highlighted", False)
+                        hl_color = item.get("highlight_color", "yellow")
+                        lines.append(f'        {{"type": "text", "text": "{text_esc}", "ilvl": {ilvl}, "highlighted": {hl}, "highlight_color": "{hl_color}"}},')
                 lines.append("    ],")
             else:
                 # string arrays
@@ -139,7 +157,7 @@ def write_config_py(config, path):
     Path(path).write_text("\n".join(lines), encoding="utf-8")
 
 
-def run_jenny_pipeline(config, template_path, output_path, job_dir):
+def run_jenny_pipeline(config, template_path, output_path, job_dir, session_id=None):
     """Execute the JENNY pipeline in a job directory."""
     # Write config file
     config_path = job_dir / "jenny_config.py"
@@ -153,6 +171,15 @@ def run_jenny_pipeline(config, template_path, output_path, job_dir):
 
     # Copy template
     shutil.copy2(template_path, job_dir / "TEMPLATE.docx")
+
+    # Copy session images to job directory for pipeline access
+    if session_id:
+        src_images = UPLOAD_DIR / session_id / "images"
+        if src_images.exists():
+            dst_images = job_dir / "images"
+            if dst_images.exists():
+                shutil.rmtree(dst_images)
+            shutil.copytree(str(src_images), str(dst_images))
 
     # Run pipeline
     result = subprocess.run(
@@ -279,16 +306,103 @@ def extract():
             if not draft_text:
                 return jsonify({"error": "Could not extract text from PDF. File may be scanned/image-only."}), 400
 
+            # --- PDF IMAGE EXTRACTION (via PyMuPDF) ---
+            image_positions = []
+            try:
+                import fitz  # PyMuPDF
+                session_dir = UPLOAD_DIR / session_id
+                images_dir = session_dir / "images"
+                images_dir.mkdir(exist_ok=True)
+
+                pdf_doc = fitz.open(draft_path)
+                total_pages = len(pdf_doc)
+                img_counter = 0
+
+                for page_num in range(total_pages):
+                    page = pdf_doc[page_num]
+                    image_list = page.get_images(full=True)
+
+                    for img_info in image_list:
+                        xref = img_info[0]
+                        try:
+                            base_image = pdf_doc.extract_image(xref)
+                            img_bytes = base_image["image"]
+                            img_ext = base_image.get("ext", "png")
+                            img_name = f"pdf_image_{img_counter}.{img_ext}"
+
+                            (images_dir / img_name).write_bytes(img_bytes)
+
+                            # Track position as fraction through document (page-based)
+                            position_frac = (page_num + 0.5) / max(total_pages, 1)
+
+                            image_positions.append({
+                                "src": img_name,
+                                "width_emu": base_image.get("width", 400) * 9525,  # px to EMU
+                                "height_emu": base_image.get("height", 300) * 9525,
+                                "position_frac": position_frac,
+                            })
+                            img_counter += 1
+                        except Exception:
+                            continue
+
+                pdf_doc.close()
+            except ImportError:
+                pass  # PyMuPDF not installed, skip image extraction
+
+            sessions[session_id]["image_positions"] = image_positions
+            sessions[session_id]["image_source"] = "pdf"
+
         else:
             import zipfile
             with zipfile.ZipFile(draft_path, 'r') as z:
                 xml = z.read('word/document.xml').decode('utf-8')
 
+                # --- IMAGE EXTRACTION ---
+                # Build rId -> filename mapping from rels
+                rid_to_file = {}
+                try:
+                    rels_xml = z.read('word/_rels/document.xml.rels').decode('utf-8')
+                    for rm in re.finditer(r'Id="(rId\d+)"[^>]*Target="media/([^"]+)"', rels_xml):
+                        rid_to_file[rm.group(1)] = rm.group(2)
+                except KeyError:
+                    pass  # No rels file = no images
+
+                # Extract image files to session images directory
+                session_dir = UPLOAD_DIR / session_id
+                images_dir = session_dir / "images"
+                images_dir.mkdir(exist_ok=True)
+                for img_filename in rid_to_file.values():
+                    img_zip_path = f"word/media/{img_filename}"
+                    if img_zip_path in z.namelist():
+                        (images_dir / img_filename).write_bytes(z.read(img_zip_path))
+
+            # Parse paragraphs: extract text AND track image positions
             structured_lines = []
+            image_positions = []  # {"src", "width_emu", "height_emu", "after_text_idx"}
+            text_para_idx = 0  # counts only text paragraphs (what LLM sees)
+            numbered_para_idx = 0  # counts only numbered (ilvl) paragraphs = S6 region
+
             for m_para in re.finditer(r'<w:p [^>]*>(.*?)</w:p>', xml, re.DOTALL):
                 para = m_para.group(1)
+                has_drawing = '<w:drawing' in para
                 texts = re.findall(r'<w:t[^>]*>([^<]*)</w:t>', para)
                 text = ''.join(texts).strip()
+
+                # Track images (even if paragraph also has text)
+                if has_drawing:
+                    blip_m = re.search(r'<a:blip[^>]*r:embed="(rId\d+)"', para)
+                    extent_m = re.search(r'<wp:extent\s+cx="(\d+)"\s+cy="(\d+)"', para)
+                    if blip_m and blip_m.group(1) in rid_to_file:
+                        img_file = rid_to_file[blip_m.group(1)]
+                        w_emu = int(extent_m.group(1)) if extent_m else 4572000
+                        h_emu = int(extent_m.group(2)) if extent_m else 3429000
+                        image_positions.append({
+                            "src": img_file,
+                            "width_emu": w_emu,
+                            "height_emu": h_emu,
+                            "after_numbered_idx": numbered_para_idx - 1,
+                        })
+
                 if not text:
                     continue
 
@@ -298,6 +412,7 @@ def extract():
 
                 if ilvl_m:
                     ilvl = ilvl_m.group(1)
+                    numbered_para_idx += 1
                     if hl_color:
                         structured_lines.append(f'[ilvl={ilvl}, highlight={hl_color}] {text}')
                     else:
@@ -308,7 +423,12 @@ def extract():
                     else:
                         structured_lines.append(text)
 
+                text_para_idx += 1
+
             draft_text = "\n".join(structured_lines)
+
+            # Store image positions on session for post-LLM splicing
+            sessions[session_id]["image_positions"] = image_positions
 
     except Exception as e:
         return jsonify({"error": f"Failed to read draft: {e}"}), 500
@@ -391,16 +511,55 @@ def extract():
     config, issues = sanitize_config(config)
 
     # ============================================================
+    # STEP 7b: Splice extracted images into s6_steps
+    # Images were extracted from the draft .docx and tracked by position
+    # relative to numbered (ilvl) paragraphs. Insert them at the right spots.
+    # ============================================================
+    image_positions = sessions[session_id].get("image_positions", [])
+    if image_positions and "s6_steps" in config:
+        new_steps = []
+        for step_idx, step in enumerate(config["s6_steps"]):
+            # Insert any images that belong before this step
+            for img in image_positions:
+                if img["after_numbered_idx"] == step_idx - 1:
+                    new_steps.append({
+                        "type": "image",
+                        "src": img["src"],
+                        "ilvl": 0,
+                        "width_emu": img["width_emu"],
+                        "height_emu": img["height_emu"],
+                    })
+            step["type"] = "text"
+            new_steps.append(step)
+
+        # Trailing images (after the last step)
+        last_idx = len(config["s6_steps"]) - 1
+        for img in image_positions:
+            if img["after_numbered_idx"] >= last_idx:
+                new_steps.append({
+                    "type": "image",
+                    "src": img["src"],
+                    "ilvl": 0,
+                    "width_emu": img["width_emu"],
+                    "height_emu": img["height_emu"],
+                })
+
+        config["s6_steps"] = new_steps
+
+    # ============================================================
     # STEP 8: Return config + stats
     # ============================================================
     steps = config.get("s6_steps", [])
+    text_steps = [s for s in steps if s.get("type", "text") == "text"]
+    image_steps = [s for s in steps if s.get("type") == "image"]
     stats = {
-        "total_steps": len(steps),
-        "ilvl0": sum(1 for s in steps if s.get("ilvl") == 0),
-        "ilvl1": sum(1 for s in steps if s.get("ilvl") == 1),
-        "ilvl2": sum(1 for s in steps if s.get("ilvl") == 2),
-        "ilvl3": sum(1 for s in steps if s.get("ilvl") == 3),
-        "highlighted": sum(1 for s in steps if s.get("highlighted")),
+        "total_steps": len(text_steps),
+        "total_images": len(image_steps),
+        "ilvl0": sum(1 for s in text_steps if s.get("ilvl") == 0),
+        "ilvl1": sum(1 for s in text_steps if s.get("ilvl") == 1),
+        "ilvl2": sum(1 for s in text_steps if s.get("ilvl") == 2),
+        "ilvl3": sum(1 for s in text_steps if s.get("ilvl") == 3),
+        "highlighted": sum(1 for s in text_steps if s.get("highlighted")),
         "roles": len(config.get("s4_roles", [])),
         "guidelines": len(config.get("s7_guidelines", [])),
     }
@@ -424,15 +583,18 @@ def sanitize():
 
     sanitized, issues = sanitize_config(config)
 
-    # Compute stats
+    # Compute stats (filter image entries from text-specific counts)
     steps = sanitized.get("s6_steps", [])
+    text_steps = [s for s in steps if s.get("type", "text") == "text"]
+    image_steps = [s for s in steps if s.get("type") == "image"]
     stats = {
-        "total_steps": len(steps),
-        "ilvl0": sum(1 for s in steps if s.get("ilvl") == 0),
-        "ilvl1": sum(1 for s in steps if s.get("ilvl") == 1),
-        "ilvl2": sum(1 for s in steps if s.get("ilvl") == 2),
-        "ilvl3": sum(1 for s in steps if s.get("ilvl") == 3),
-        "highlighted": sum(1 for s in steps if s.get("highlighted")),
+        "total_steps": len(text_steps),
+        "total_images": len(image_steps),
+        "ilvl0": sum(1 for s in text_steps if s.get("ilvl") == 0),
+        "ilvl1": sum(1 for s in text_steps if s.get("ilvl") == 1),
+        "ilvl2": sum(1 for s in text_steps if s.get("ilvl") == 2),
+        "ilvl3": sum(1 for s in text_steps if s.get("ilvl") == 3),
+        "highlighted": sum(1 for s in text_steps if s.get("highlighted")),
         "roles": len(sanitized.get("s4_roles", [])),
         "guidelines": len(sanitized.get("s7_guidelines", [])),
     }
@@ -514,15 +676,18 @@ def import_config():
     # Sanitize
     config, issues = sanitize_config(config)
 
-    # Stats
+    # Stats (filter image entries from text-specific counts)
     steps = config.get("s6_steps", [])
+    text_steps = [s for s in steps if s.get("type", "text") == "text"]
+    image_steps = [s for s in steps if s.get("type") == "image"]
     stats = {
-        "total_steps": len(steps),
-        "ilvl0": sum(1 for s in steps if s.get("ilvl") == 0),
-        "ilvl1": sum(1 for s in steps if s.get("ilvl") == 1),
-        "ilvl2": sum(1 for s in steps if s.get("ilvl") == 2),
-        "ilvl3": sum(1 for s in steps if s.get("ilvl") == 3),
-        "highlighted": sum(1 for s in steps if s.get("highlighted")),
+        "total_steps": len(text_steps),
+        "total_images": len(image_steps),
+        "ilvl0": sum(1 for s in text_steps if s.get("ilvl") == 0),
+        "ilvl1": sum(1 for s in text_steps if s.get("ilvl") == 1),
+        "ilvl2": sum(1 for s in text_steps if s.get("ilvl") == 2),
+        "ilvl3": sum(1 for s in text_steps if s.get("ilvl") == 3),
+        "highlighted": sum(1 for s in text_steps if s.get("highlighted")),
         "roles": len(config.get("s4_roles", [])),
         "guidelines": len(config.get("s7_guidelines", [])),
     }
@@ -557,7 +722,7 @@ def generate():
     job_dir.mkdir(exist_ok=True)
 
     try:
-        result = run_jenny_pipeline(config, template_path, None, job_dir)
+        result = run_jenny_pipeline(config, template_path, None, job_dir, session_id=session_id)
 
         if result["success"]:
             # Parse score from stdout
@@ -597,6 +762,21 @@ def download(job_id):
         as_attachment=True,
         download_name=f"SOP_JENNY_{job_id}.docx",
     )
+
+
+@app.route("/api/image/<session_id>/<filename>", methods=["GET"])
+def serve_image(session_id, filename):
+    """Serve an extracted image from the session's images directory."""
+    safe_name = os.path.basename(filename)
+    image_path = UPLOAD_DIR / session_id / "images" / safe_name
+    if not image_path.exists():
+        return jsonify({"error": "Image not found"}), 404
+
+    ext = safe_name.rsplit(".", 1)[-1].lower()
+    mime = {"png": "image/png", "jpeg": "image/jpeg", "jpg": "image/jpeg",
+            "gif": "image/gif", "bmp": "image/bmp"}.get(ext, "application/octet-stream")
+
+    return send_file(str(image_path), mimetype=mime)
 
 
 # ============================================================
