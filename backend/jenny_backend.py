@@ -512,37 +512,54 @@ def extract():
 
     # ============================================================
     # STEP 7b: Splice extracted images into s6_steps
-    # Images were extracted from the draft .docx and tracked by position
-    # relative to numbered (ilvl) paragraphs. Insert them at the right spots.
+    # .docx images: positioned by after_numbered_idx (paragraph-level)
+    # PDF images: positioned by position_frac (page-level proportion)
     # ============================================================
     image_positions = sessions[session_id].get("image_positions", [])
     if image_positions and "s6_steps" in config:
-        new_steps = []
-        for step_idx, step in enumerate(config["s6_steps"]):
-            # Insert any images that belong before this step
-            for img in image_positions:
-                if img["after_numbered_idx"] == step_idx - 1:
-                    new_steps.append({
-                        "type": "image",
-                        "src": img["src"],
-                        "ilvl": 0,
-                        "width_emu": img["width_emu"],
-                        "height_emu": img["height_emu"],
-                    })
-            step["type"] = "text"
-            new_steps.append(step)
+        image_source = sessions[session_id].get("image_source", "docx")
 
-        # Trailing images (after the last step)
-        last_idx = len(config["s6_steps"]) - 1
-        for img in image_positions:
-            if img["after_numbered_idx"] >= last_idx:
-                new_steps.append({
-                    "type": "image",
-                    "src": img["src"],
-                    "ilvl": 0,
-                    "width_emu": img["width_emu"],
-                    "height_emu": img["height_emu"],
-                })
+        def make_image_entry(img):
+            return {
+                "type": "image",
+                "src": img["src"],
+                "ilvl": 0,
+                "width_emu": img["width_emu"],
+                "height_emu": img["height_emu"],
+            }
+
+        if image_source == "pdf":
+            # PDF: distribute images proportionally through steps
+            num_steps = len(config["s6_steps"])
+            new_steps = []
+            # Map each image to a step index based on its position fraction
+            img_at_step = {}  # step_idx -> [image entries]
+            for img in image_positions:
+                target_idx = int(img["position_frac"] * num_steps)
+                target_idx = min(target_idx, num_steps - 1)
+                img_at_step.setdefault(target_idx, []).append(img)
+
+            for step_idx, step in enumerate(config["s6_steps"]):
+                step["type"] = "text"
+                new_steps.append(step)
+                # Insert images after this step
+                for img in img_at_step.get(step_idx, []):
+                    new_steps.append(make_image_entry(img))
+        else:
+            # .docx: position by after_numbered_idx
+            new_steps = []
+            for step_idx, step in enumerate(config["s6_steps"]):
+                for img in image_positions:
+                    if img["after_numbered_idx"] == step_idx - 1:
+                        new_steps.append(make_image_entry(img))
+                step["type"] = "text"
+                new_steps.append(step)
+
+            # Trailing images (after the last step)
+            last_idx = len(config["s6_steps"]) - 1
+            for img in image_positions:
+                if img["after_numbered_idx"] >= last_idx:
+                    new_steps.append(make_image_entry(img))
 
         config["s6_steps"] = new_steps
 
