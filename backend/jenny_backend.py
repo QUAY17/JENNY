@@ -9,7 +9,7 @@ Flask API that orchestrates:
   5. Output delivery (.docx download)
 """
 
-import os, sys, json, shutil, tempfile, uuid, subprocess, re, traceback
+import os, sys, json, shutil, tempfile, uuid, subprocess, re, traceback, ast
 from pathlib import Path
 from datetime import datetime
 from flask import Flask, request, jsonify, send_file
@@ -18,6 +18,7 @@ import urllib.request
 
 app = Flask(__name__)
 CORS(app)
+app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50 MB upload limit
 
 # Configuration
 UPLOAD_DIR = Path("./uploads")
@@ -36,6 +37,36 @@ sessions = {}
 # ============================================================
 # HELPERS
 # ============================================================
+
+def parse_config_safely(text):
+    """Parse a JENNY_CONFIG dict from text using ast.literal_eval (no exec).
+
+    Handles:
+      - JENNY_CONFIG = { ... }   (Python assignment)
+      - { ... }                  (bare dict literal)
+      - markdown fences around either form
+    Returns the parsed dict, or raises ValueError on failure.
+    """
+    cleaned = text.strip()
+    # Strip markdown fences
+    if cleaned.startswith("```"):
+        cleaned = re.sub(r'^```\w*\n', '', cleaned)
+        cleaned = re.sub(r'\n```\s*$', '', cleaned)
+
+    # If it contains an assignment, extract the RHS
+    m = re.search(r'JENNY_CONFIG\s*=\s*(\{[\s\S]*\})\s*$', cleaned)
+    if m:
+        dict_text = m.group(1)
+    else:
+        # Try to find a bare dict literal
+        m2 = re.search(r'(\{[\s\S]*\})', cleaned)
+        if m2:
+            dict_text = m2.group(1)
+        else:
+            raise ValueError("No dict literal found in text")
+
+    return ast.literal_eval(dict_text)
+
 
 def sanitize_config(config):
     """Fix common LLM extraction issues before pipeline runs."""
@@ -493,16 +524,7 @@ def extract():
     raw_text = "".join(b.get("text", "") for b in resp_data.get("content", []))
 
     try:
-        # Strip any markdown fences the LLM might add despite instructions
-        cleaned = raw_text.strip()
-        if cleaned.startswith("```"):
-            cleaned = re.sub(r'^```\w*\n', '', cleaned)
-            cleaned = re.sub(r'\n```\s*$', '', cleaned)
-
-        # Execute the Python to get JENNY_CONFIG
-        namespace = {}
-        exec(cleaned, namespace)
-        config = namespace.get("JENNY_CONFIG")
+        config = parse_config_safely(raw_text)
         if not config:
             return jsonify({
                 "error": "No JENNY_CONFIG found in LLM response",
@@ -668,12 +690,10 @@ def import_config():
         raw = re.sub(r'^```\w*\n', '', raw.strip())
         raw = re.sub(r'\n```\s*$', '', raw)
 
-    # Try 1: Parse as Python (JENNY_CONFIG = {...})
+    # Try 1: Parse as Python dict literal (JENNY_CONFIG = {...})
     if "JENNY_CONFIG" in raw:
         try:
-            namespace = {}
-            exec(raw, namespace)
-            config = namespace.get("JENNY_CONFIG")
+            config = parse_config_safely(raw)
             source = "python-import"
         except Exception:
             pass
@@ -778,7 +798,8 @@ def generate():
     except subprocess.TimeoutExpired:
         return jsonify({"error": "Pipeline timed out (120s)"}), 504
     except Exception as e:
-        return jsonify({"error": str(e), "traceback": traceback.format_exc()}), 500
+        print(f"Pipeline error: {traceback.format_exc()}")  # Log server-side only
+        return jsonify({"error": "Pipeline execution failed"}), 500
 
 
 @app.route("/api/download/<job_id>", methods=["GET"])
@@ -821,4 +842,5 @@ if __name__ == "__main__":
     print(f"  Upload dir:   {UPLOAD_DIR}")
     print(f"  Jobs dir:     {JOBS_DIR}")
     print()
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    debug = os.environ.get("FLASK_DEBUG", "0") == "1"
+    app.run(host="0.0.0.0", port=5000, debug=debug)
