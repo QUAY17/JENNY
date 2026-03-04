@@ -320,10 +320,25 @@ def extract():
 
                 for page_num in range(total_pages):
                     page = pdf_doc[page_num]
-                    image_list = page.get_images(full=True)
+                    page_h = page.rect.height
 
-                    for img_info in image_list:
-                        xref = img_info[0]
+                    for img_info in page.get_image_info(xrefs=True):
+                        xref = img_info.get("xref", 0)
+                        bbox = img_info.get("bbox", (0, 0, 0, 0))
+                        if not xref:
+                            continue
+
+                        render_w = bbox[2] - bbox[0]  # width in points
+                        render_h = bbox[3] - bbox[1]  # height in points
+                        y_frac = bbox[1] / page_h if page_h else 0
+
+                        # Skip tiny inline icons (< 30pt in both dimensions)
+                        if render_w < 30 and render_h < 30:
+                            continue
+                        # Skip FEMA header branding (top 15% of page 1)
+                        if page_num == 0 and y_frac < 0.15:
+                            continue
+
                         try:
                             base_image = pdf_doc.extract_image(xref)
                             img_bytes = base_image["image"]
@@ -332,13 +347,13 @@ def extract():
 
                             (images_dir / img_name).write_bytes(img_bytes)
 
-                            # Track position as fraction through document (page-based)
-                            position_frac = (page_num + 0.5) / max(total_pages, 1)
+                            # Position: fraction through entire document using y-pos
+                            position_frac = (page_num + (bbox[1] / page_h)) / max(total_pages, 1)
 
                             image_positions.append({
                                 "src": img_name,
-                                "width_emu": base_image.get("width", 400) * 9525,  # px to EMU
-                                "height_emu": base_image.get("height", 300) * 9525,
+                                "width_emu": int(render_w * 12700),  # points to EMU
+                                "height_emu": int(render_h * 12700),
                                 "position_frac": position_frac,
                             })
                             img_counter += 1
