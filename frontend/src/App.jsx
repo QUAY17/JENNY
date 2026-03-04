@@ -1,6 +1,6 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 
-const API_BASE = "http://localhost:5000";
+const API_BASE = window.JENNY_API_BASE || "";
 
 const colors = {
   bg: "#0a0f1a",
@@ -320,6 +320,23 @@ export default function JennyApp() {
   const [validationResult, setValidationResult] = useState(null);
   const [downloadUrl, setDownloadUrl] = useState(null);
   const [modelLabel, setModelLabel] = useState("");
+  const [hasKey, setHasKey] = useState(null); // null = loading, true/false = known
+  const [apiKeyInput, setApiKeyInput] = useState("");
+
+  useEffect(() => {
+    fetch(`${API_BASE}/api/key-status`).then(r => r.json()).then(d => setHasKey(d.has_key)).catch(() => setHasKey(false));
+  }, []);
+
+  const submitApiKey = async () => {
+    try {
+      const resp = await fetch(`${API_BASE}/api/set-key`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ key: apiKeyInput.trim() }),
+      });
+      if (resp.ok) { setHasKey(true); setApiKeyInput(""); }
+      else { const d = await resp.json(); alert(d.error || "Failed to set key"); }
+    } catch (e) { alert(`Failed: ${e.message}`); }
+  };
 
   const log = useCallback((msg, type = "log") => {
     const time = new Date().toLocaleTimeString("en-US", { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" });
@@ -544,6 +561,18 @@ export default function JennyApp() {
       <div style={{ display: "grid", gridTemplateColumns: "380px 1fr", minHeight: "calc(100vh - 57px)" }}>
         {/* Left Panel */}
         <div style={{ borderRight: `1px solid ${colors.border}`, padding: 24, display: "flex", flexDirection: "column", gap: 20 }}>
+          {hasKey === false && (
+            <div style={{ background: colors.surfaceAlt, border: `1px solid ${colors.border}`, borderRadius: 8, padding: 14 }}>
+              <div style={{ fontSize: 11, fontFamily: font, color: colors.textDim, marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.1em" }}>API Key Required</div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <input type="password" placeholder="sk-ant-..." value={apiKeyInput} onChange={e => setApiKeyInput(e.target.value)}
+                  onKeyDown={e => e.key === "Enter" && submitApiKey()}
+                  style={{ flex: 1, padding: "8px 10px", borderRadius: 4, border: `1px solid ${colors.border}`, background: colors.bg, color: colors.text, fontFamily: "monospace", fontSize: 11 }} />
+                <button onClick={submitApiKey} style={{ padding: "8px 14px", borderRadius: 4, border: "none", background: colors.accent, color: "#fff", fontFamily: font, fontSize: 11, fontWeight: 600, cursor: "pointer" }}>SET</button>
+              </div>
+              <div style={{ fontSize: 10, color: colors.textDim, marginTop: 6, fontFamily: font }}>Or skip and use "Paste Config" with an external LLM</div>
+            </div>
+          )}
           <div>
             <div style={{ fontSize: 11, fontFamily: font, color: colors.textDim, marginBottom: 12, textTransform: "uppercase", letterSpacing: "0.1em" }}>1. Upload Files</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>

@@ -21,14 +21,22 @@ CORS(app)
 app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50 MB upload limit
 
 # Configuration
-UPLOAD_DIR = Path("./uploads")
-JOBS_DIR = Path("./jobs")
-PIPELINE_DIR = Path(__file__).parent
+# When running as PyInstaller exe, _MEIPASS has bundled data files;
+# writable dirs (uploads/jobs) go next to the exe, not inside _MEIPASS.
+if getattr(sys, '_MEIPASS', None):
+    PIPELINE_DIR = Path(sys._MEIPASS)
+    _BASE = Path(sys.executable).parent
+else:
+    PIPELINE_DIR = Path(__file__).parent
+    _BASE = Path(".")
+UPLOAD_DIR = _BASE / "uploads"
+JOBS_DIR = _BASE / "jobs"
 UPLOAD_DIR.mkdir(exist_ok=True)
 JOBS_DIR.mkdir(exist_ok=True)
 
-# API Key from environment -- NEVER hardcode this
-ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
+# API Key -- build.py patches EMBEDDED_API_KEY for keyed builds
+EMBEDDED_API_KEY = None
+ANTHROPIC_API_KEY = EMBEDDED_API_KEY or os.environ.get("ANTHROPIC_API_KEY")
 
 # Store uploaded files per session
 sessions = {}
@@ -833,14 +841,64 @@ def serve_image(session_id, filename):
 
 
 # ============================================================
+# API KEY MANAGEMENT
+# ============================================================
+
+@app.route("/api/key-status", methods=["GET"])
+def key_status():
+    return jsonify({"has_key": bool(ANTHROPIC_API_KEY)})
+
+@app.route("/api/set-key", methods=["POST"])
+def set_key():
+    global ANTHROPIC_API_KEY
+    key = request.json.get("key", "").strip()
+    if not key.startswith("sk-ant-"):
+        return jsonify({"error": "Invalid key format — must start with sk-ant-"}), 400
+    ANTHROPIC_API_KEY = key
+    return jsonify({"status": "ok"})
+
+
+# ============================================================
+# FRONTEND SERVING (production / exe mode)
+# ============================================================
+
+# Detect PyInstaller bundle
+if getattr(sys, '_MEIPASS', None):
+    FRONTEND_DIR = Path(sys._MEIPASS) / "frontend_dist"
+else:
+    FRONTEND_DIR = Path(__file__).parent.parent / "frontend" / "dist"
+
+@app.route("/", defaults={"path": ""})
+@app.route("/<path:path>")
+def serve_frontend(path):
+    if path.startswith("api/"):
+        return jsonify({"error": "Not found"}), 404
+    file_path = FRONTEND_DIR / path
+    if file_path.is_file():
+        return send_file(str(file_path))
+    index = FRONTEND_DIR / "index.html"
+    if index.is_file():
+        return send_file(str(index))
+    return jsonify({"error": "Frontend not built. Run: cd frontend && npm run build"}), 404
+
+
+# ============================================================
 # MAIN
 # ============================================================
 
 if __name__ == "__main__":
+    import webbrowser
     print("JENNY SOP Generator Backend")
     print(f"  Pipeline dir: {PIPELINE_DIR}")
     print(f"  Upload dir:   {UPLOAD_DIR}")
     print(f"  Jobs dir:     {JOBS_DIR}")
     print()
     debug = os.environ.get("FLASK_DEBUG", "0") == "1"
-    app.run(host="0.0.0.0", port=5000, debug=debug)
+    host = "127.0.0.1"
+    port = 5000
+    # Auto-open browser when running as bundled exe
+    if getattr(sys, '_MEIPASS', None):
+        import threading
+        threading.Timer(1.5, lambda: webbrowser.open(f"http://localhost:{port}")).start()
+        print(f"  Opening browser at http://localhost:{port}")
+    app.run(host=host, port=port, debug=debug)
