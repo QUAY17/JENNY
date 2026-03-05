@@ -640,7 +640,7 @@ export default function JennyApp() {
               borderRadius: 8, padding: 16,
             }}>
               <div style={{ fontFamily: font, fontSize: 14, fontWeight: 600, marginBottom: 10, color: validationResult.pct === 100 ? colors.success : colors.warning }}>
-                {validationResult.pct === 100 ? "Pipeline executed successfully" : "Pipeline completed with errors -- see log"}
+                {validationResult.pct === 100 ? "Pipeline executed successfully" : "Pipeline completed with warnings -- see log"}
               </div>
               {downloadUrl && (
                 <a href={downloadUrl} download style={{
