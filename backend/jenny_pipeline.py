@@ -17,7 +17,7 @@ The pipeline:
 No creative decisions. No interpretation. No helpfulness.
 """
 
-import os, re, sys, shutil, subprocess, pathlib, importlib.util, json
+import os, re, sys, shutil, pathlib, importlib.util
 import xml.etree.ElementTree as ET
 
 # ============================================================
@@ -210,10 +210,8 @@ def run_pipeline(config, template_path, output_path, instructions_path=None):
 
     if os.path.exists("./unpacked"):
         shutil.rmtree("./unpacked")
-    r = subprocess.run([sys.executable, "unpack_docx.py", template_path, "./unpacked/"],
-                       capture_output=True, text=True)
-    print(r.stdout.strip())
-    assert r.returncode == 0, f"Unpack failed: {r.stderr}"
+    from unpack_docx import unpack
+    unpack(template_path, "./unpacked/")
     assert os.path.exists("./unpacked/word/document.xml")
     assert os.path.exists("./unpacked/word/header5.xml")
     print("Phase 1 PASSED\n")
@@ -905,10 +903,8 @@ def run_pipeline(config, template_path, output_path, instructions_path=None):
         print("\nWARNING: Validation failures detected. Output may need manual review.")
 
     # --- PACK ---
-    r = subprocess.run([sys.executable, "pack_docx.py", "./unpacked/", output_path],
-                       capture_output=True, text=True)
-    print(r.stdout.strip())
-    assert "Packed" in r.stdout or os.path.exists(output_path), f"Pack failed: {r.stderr}"
+    from pack_docx import pack
+    pack("./unpacked/", output_path)
     print(f"\nOutput: {output_path}")
 
 # ============================================================

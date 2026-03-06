@@ -221,24 +221,56 @@ def run_jenny_pipeline(config, template_path, output_path, job_dir, session_id=N
             shutil.copytree(str(src_images), str(dst_images))
 
     # Run pipeline
-    result = subprocess.run(
-        [sys.executable, "jenny_pipeline.py",
-         "jenny_config.py",
-         "TEMPLATE.docx",
-         "OUTPUT.docx"],
-        capture_output=True, text=True, cwd=str(job_dir),
-        timeout=120,
-    )
-
     output_file = job_dir / "OUTPUT.docx"
 
-    return {
-        "success": result.returncode == 0 and output_file.exists(),
-        "stdout": result.stdout,
-        "stderr": result.stderr,
-        "output_path": str(output_file) if output_file.exists() else None,
-        "returncode": result.returncode,
-    }
+    if getattr(sys, '_MEIPASS', None):
+        # In PyInstaller bundle: run in-process (sys.executable is the exe, not Python)
+        import io, contextlib
+        old_cwd = os.getcwd()
+        stdout_capture = io.StringIO()
+        stderr_capture = io.StringIO()
+        try:
+            os.chdir(str(job_dir))
+            sys.path.insert(0, str(job_dir))
+            from jenny_pipeline import load_config, run_pipeline
+            cfg = load_config("jenny_config.py")
+            with contextlib.redirect_stdout(stdout_capture), contextlib.redirect_stderr(stderr_capture):
+                run_pipeline(cfg, "TEMPLATE.docx", "OUTPUT.docx")
+            return {
+                "success": output_file.exists(),
+                "stdout": stdout_capture.getvalue(),
+                "stderr": stderr_capture.getvalue(),
+                "output_path": str(output_file) if output_file.exists() else None,
+                "returncode": 0,
+            }
+        except Exception as e:
+            return {
+                "success": False,
+                "stdout": stdout_capture.getvalue(),
+                "stderr": f"{stderr_capture.getvalue()}\n{e}",
+                "output_path": None,
+                "returncode": 1,
+            }
+        finally:
+            os.chdir(old_cwd)
+            if str(job_dir) in sys.path:
+                sys.path.remove(str(job_dir))
+    else:
+        result = subprocess.run(
+            [sys.executable, "jenny_pipeline.py",
+             "jenny_config.py",
+             "TEMPLATE.docx",
+             "OUTPUT.docx"],
+            capture_output=True, text=True, cwd=str(job_dir),
+            timeout=120,
+        )
+        return {
+            "success": result.returncode == 0 and output_file.exists(),
+            "stdout": result.stdout,
+            "stderr": result.stderr,
+            "output_path": str(output_file) if output_file.exists() else None,
+            "returncode": result.returncode,
+        }
 
 
 # ============================================================
