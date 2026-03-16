@@ -102,31 +102,50 @@ function LogPanel({ logs }) {
 function ConfigEditor({ config, onChange, sessionId }) {
   if (!config) return null;
 
+  const sectionLabels = {
+    full_title: "1. Full Title",
+    short_title: "1. Short Title",
+    structure_type: "1. Structure Type",
+    cover_date: "1. Cover Date",
+    purpose: "2. Purpose",
+    scope: "2. Scope",
+    s3_supersession: "3. Supersession",
+    s4_roles: "4. Roles",
+    s5_materials: "5. Materials",
+    s6_intro: "6. Intro",
+    s6_steps: "6. Steps",
+    s7_guidelines: "7. Guidelines",
+    extraction_notes: "Extraction Notes",
+  };
+
   const renderField = (key, value, path = []) => {
     const fullPath = [...path, key];
     const pathStr = fullPath.join(".");
+    const label = sectionLabels[key] || key;
 
     if (Array.isArray(value) && value.length > 0 && typeof value[0] === "object" && (value[0].text !== undefined || value[0].src !== undefined)) {
-      const ilvlLabels = {
-        0: "1. 2. 3.",
-        1: "a. b. c.",
-        2: "i. ii. iii.",
-        3: "1) 2) 3)",
-      };
-      const ilvlNames = {
-        0: "Main Step",
-        1: "Sub-step",
-        2: "Sub-sub",
-        3: "Sub-sub-sub",
-      };
+      // Compute sequential numbering for each step
+      const counters = [0, 0, 0, 0]; // ilvl 0-3
+      const toAlpha = (n) => String.fromCharCode(96 + n); // 1->a, 2->b
+      const toRoman = (n) => { const r = ["", "i", "ii", "iii", "iv", "v", "vi", "vii", "viii", "ix", "x", "xi", "xii", "xiii", "xiv", "xv", "xvi", "xvii", "xviii", "xix", "xx"]; return r[n] || `${n}`; };
+      const stepNumbers = value.map((step) => {
+        const st = step.type || "text";
+        if (st === "image") return "[img]";
+        const lvl = step.ilvl || 0;
+        // Reset deeper counters when a higher level appears
+        for (let d = lvl + 1; d < 4; d++) counters[d] = 0;
+        counters[lvl]++;
+        if (lvl === 0) return `${counters[0]}.`;
+        if (lvl === 1) return `${toAlpha(counters[1])}.`;
+        if (lvl === 2) return `${toRoman(counters[2])}.`;
+        return `${counters[3]}.`;
+      });
+
       return (
         <div key={pathStr} style={{ marginBottom: 16 }}>
           <label style={{ display: "block", fontSize: 11, fontFamily: font, color: colors.accent, marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.05em" }}>
-            {key} ({value.filter(s => (s.type || "text") === "text").length} steps{value.filter(s => s.type === "image").length > 0 ? `, ${value.filter(s => s.type === "image").length} images` : ""})
+            {label} ({value.filter(s => (s.type || "text") === "text").length} steps{value.filter(s => s.type === "image").length > 0 ? `, ${value.filter(s => s.type === "image").length} images` : ""})
           </label>
-          <div style={{ fontSize: 10, fontFamily: font, color: colors.textDim, marginBottom: 6 }}>
-            Indent levels: 1. 2. 3. = Main Step | a. b. c. = Sub-step | i. ii. iii. = Sub-sub | 1. 2. 3. (nested) = Sub-sub-sub
-          </div>
           <div style={{ maxHeight: 300, overflowY: "auto", border: `1px solid ${colors.border}`, borderRadius: 6, padding: 8 }}>
             {value.map((step, i) => {
               const stepType = step.type || "text";
@@ -134,14 +153,14 @@ function ConfigEditor({ config, onChange, sessionId }) {
               if (stepType === "image") {
                 return (
                   <div key={i} style={{
-                    display: "grid", gridTemplateColumns: "70px 1fr 90px",
+                    display: "grid", gridTemplateColumns: "40px 1fr 90px",
                     gap: 6, marginBottom: 4, alignItems: "start",
                     paddingLeft: (step.ilvl || 0) * 20,
                   }}>
                     <span style={{
                       fontSize: 10, fontFamily: font, color: colors.accent, paddingTop: 6,
                     }}>
-                      [Image]
+                      [img]
                     </span>
                     <div style={{
                       border: `1px solid ${colors.border}`, borderRadius: 4, padding: 4,
@@ -169,10 +188,10 @@ function ConfigEditor({ config, onChange, sessionId }) {
                           onChange(fullPath, newSteps);
                         }}
                       >
-                        <option value={0}>1. 2. 3. (Main)</option>
-                        <option value={1}>a. b. c. (Sub)</option>
-                        <option value={2}>i. ii. iii. (Sub-sub)</option>
-                        <option value={3}>1. 2. 3. (Sub-sub-sub)</option>
+                        <option value={0}>1. (Main)</option>
+                        <option value={1}>a. (Sub)</option>
+                        <option value={2}>i. (Sub-sub)</option>
+                        <option value={3}>1. (Nested)</option>
                       </select>
                       <button
                         onClick={() => {
@@ -203,15 +222,15 @@ function ConfigEditor({ config, onChange, sessionId }) {
                 : colors.surfaceAlt;
               return (
               <div key={i} style={{
-                display: "grid", gridTemplateColumns: "70px 1fr 90px",
+                display: "grid", gridTemplateColumns: "40px 1fr 90px",
                 gap: 6, marginBottom: 4, alignItems: "start",
                 paddingLeft: step.ilvl * 20,
               }}>
                 <span style={{
-                  fontSize: 10, fontFamily: font, color: isHighlighted ? hlBorder : colors.textDim,
-                  paddingTop: 6, fontWeight: isHighlighted ? 600 : 400,
+                  fontSize: 11, fontFamily: font, color: isHighlighted ? hlBorder : colors.textDim,
+                  paddingTop: 5, fontWeight: isHighlighted ? 600 : 400,
                 }}>
-                  {ilvlNames[step.ilvl] || "?"}{isHighlighted ? ` [${hlColor}]` : ""}
+                  {stepNumbers[i]}{isHighlighted ? ` *` : ""}
                 </span>
                 <input style={{
                   width: "100%", padding: "4px 8px", background: hlBg,
@@ -236,10 +255,10 @@ function ConfigEditor({ config, onChange, sessionId }) {
                     onChange(fullPath, newSteps);
                   }}
                 >
-                  <option value={0}>1. 2. 3. (Main)</option>
-                  <option value={1}>a. b. c. (Sub)</option>
-                  <option value={2}>i. ii. iii. (Sub-sub)</option>
-                  <option value={3}>1. 2. 3. (Sub-sub-sub)</option>
+                  <option value={0}>1. (Main)</option>
+                  <option value={1}>a. (Sub)</option>
+                  <option value={2}>i. (Sub-sub)</option>
+                  <option value={3}>1. (Nested)</option>
                 </select>
               </div>
               );
@@ -249,11 +268,35 @@ function ConfigEditor({ config, onChange, sessionId }) {
       );
     }
 
+    if (Array.isArray(value) && key === "extraction_notes") {
+      if (value.length === 0) return null;
+      return (
+        <div key={pathStr} style={{
+          marginBottom: 16, padding: "10px 14px",
+          background: "rgba(245,158,11,0.08)", border: `1px solid ${colors.warning}`,
+          borderRadius: 6, borderLeft: `4px solid ${colors.warning}`,
+        }}>
+          <label style={{ display: "block", fontSize: 11, fontFamily: font, color: colors.warning, marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.05em", fontWeight: 700 }}>
+            Extraction Notes ({value.length})
+          </label>
+          {value.map((item, i) => (
+            <div key={i} style={{
+              fontSize: 12, fontFamily: fontBody, color: colors.text,
+              marginBottom: i < value.length - 1 ? 6 : 0, paddingLeft: 8,
+              borderLeft: `2px solid rgba(245,158,11,0.3)`,
+            }}>
+              {item}
+            </div>
+          ))}
+        </div>
+      );
+    }
+
     if (Array.isArray(value)) {
       return (
         <div key={pathStr} style={{ marginBottom: 12 }}>
           <label style={{ display: "block", fontSize: 11, fontFamily: font, color: colors.accent, marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.05em" }}>
-            {key} ({value.length} items)
+            {label} ({value.length} items)
           </label>
           {value.map((item, i) => (
             <textarea key={i} style={{
@@ -280,7 +323,7 @@ function ConfigEditor({ config, onChange, sessionId }) {
       return (
         <div key={pathStr} style={{ marginBottom: 12 }}>
           <label style={{ display: "block", fontSize: 11, fontFamily: font, color: colors.accent, marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.05em" }}>
-            {key}
+            {label}
           </label>
           <Comp style={{
             width: "100%", padding: "6px 10px", background: colors.surfaceAlt,
@@ -298,9 +341,12 @@ function ConfigEditor({ config, onChange, sessionId }) {
   };
 
   const fieldOrder = [
+    "extraction_notes",
     "full_title", "short_title", "structure_type", "cover_date",
-    "extraction_notes", "purpose", "scope", "s6_intro", "s6_steps",
-    "s4_roles", "s5_materials", "s7_guidelines", "s3_supersession"
+    "purpose", "scope", "s3_supersession",
+    "s4_roles", "s5_materials",
+    "s6_intro", "s6_steps",
+    "s7_guidelines",
   ];
 
   return (
@@ -421,7 +467,7 @@ export default function JennyApp() {
       const resp = await fetch(`${API_BASE}/api/import-config`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ raw_config: rawText }),
+        body: JSON.stringify({ raw_config: rawText, session_id: sessionId }),
       });
       const data = await resp.json();
 
@@ -457,10 +503,44 @@ export default function JennyApp() {
 
   const [showPasteModal, setShowPasteModal] = useState(false);
   const [pasteText, setPasteText] = useState("");
+  const [externalPrompt, setExternalPrompt] = useState("");
+  const [promptCopied, setPromptCopied] = useState(false);
 
-  const handleConfigPaste = () => {
+  const handleConfigPaste = async () => {
     setShowPasteModal(true);
     setPasteText("");
+    setExternalPrompt("");
+    setPromptCopied(false);
+    // Fetch the assembled prompt if we have a session
+    if (sessionId) {
+      try {
+        const resp = await fetch(`${API_BASE}/api/get-prompt`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ session_id: sessionId }),
+        });
+        if (resp.ok) {
+          const data = await resp.json();
+          setExternalPrompt(data.prompt || "");
+        }
+      } catch (e) { /* ignore */ }
+    }
+  };
+
+  const copyPrompt = async () => {
+    try {
+      await navigator.clipboard.writeText(externalPrompt);
+      setPromptCopied(true);
+    } catch (e) {
+      // Fallback
+      const ta = document.createElement("textarea");
+      ta.value = externalPrompt;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      document.body.removeChild(ta);
+      setPromptCopied(true);
+    }
   };
 
   const submitPaste = () => {
@@ -594,27 +674,23 @@ export default function JennyApp() {
               }}>
               {status === "extracting" ? "EXTRACTING..." : "EXTRACT CONFIG"}
             </button>
-            <div style={{ fontSize: 10, color: colors.textDim, marginTop: 6, fontFamily: font }}>{modelLabel ? `Model: ${modelLabel}` : "Calls LLM via Anthropic API"}</div>
+            <div style={{ fontSize: 10, color: colors.textDim, marginTop: 6, fontFamily: font }}>{modelLabel ? `Model: ${modelLabel}` : "Uses Anthropic API to extract config"}</div>
 
-            <div style={{ marginTop: 12, display: "flex", gap: 8 }}>
-              <label style={{
-                flex: 1, padding: "10px 0", borderRadius: 6, border: `1px solid ${colors.accent}`,
-                background: colors.surfaceAlt, color: colors.accent, fontFamily: font, fontSize: 11, fontWeight: 600,
-                cursor: "pointer", textAlign: "center",
-              }}>
-                IMPORT CONFIG FILE
-                <input type="file" accept=".py,.json,.txt" onChange={handleConfigImportFile} style={{ display: "none" }} />
-              </label>
+            <div style={{
+              marginTop: 12, padding: "8px 0", borderTop: `1px solid ${colors.border}`,
+              display: "flex", alignItems: "center", gap: 10,
+            }}>
+              <span style={{ fontSize: 10, fontFamily: font, color: colors.textDim, whiteSpace: "nowrap" }}>OR</span>
               <button onClick={handleConfigPaste} style={{
-                flex: 1, padding: "10px 0", borderRadius: 6, border: `1px solid ${colors.accent}`,
-                background: colors.surfaceAlt, color: colors.accent, fontFamily: font, fontSize: 11, fontWeight: 600,
+                flex: 1, padding: "10px 0", borderRadius: 6, border: `1px solid ${colors.border}`,
+                background: colors.surfaceAlt, color: colors.textMuted, fontFamily: font, fontSize: 11, fontWeight: 600,
                 cursor: "pointer",
               }}>
-                PASTE CONFIG
+                PASTE CONFIG FROM EXTERNAL LLM
               </button>
             </div>
             <div style={{ fontSize: 10, color: colors.textDim, marginTop: 4, fontFamily: font }}>
-              Import a config from an external LLM
+              Use the extraction prompt with ChatGPT, Gemini, etc. and paste the output here
             </div>
           </div>
 
@@ -643,14 +719,23 @@ export default function JennyApp() {
                 {validationResult.pct === 100 ? "Pipeline executed successfully" : "Pipeline completed with warnings -- see log"}
               </div>
               {downloadUrl && (
-                <a href={downloadUrl} download style={{
-                  display: "block", padding: "10px 16px",
-                  background: validationResult.pct === 100 ? colors.generate : colors.warning,
-                  borderRadius: 6, textAlign: "center", textDecoration: "none",
-                  fontFamily: font, fontSize: 13, fontWeight: 700, color: "#fff",
-                }}>
-                  DOWNLOAD .DOCX
-                </a>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <a href={downloadUrl} download style={{
+                    flex: 1, display: "block", padding: "10px 16px",
+                    background: validationResult.pct === 100 ? colors.generate : colors.warning,
+                    borderRadius: 6, textAlign: "center", textDecoration: "none",
+                    fontFamily: font, fontSize: 13, fontWeight: 700, color: "#fff",
+                  }}>
+                    DOWNLOAD .DOCX
+                  </a>
+                  <button onClick={resetAll} style={{
+                    padding: "10px 16px", borderRadius: 6, border: `1px solid ${colors.border}`,
+                    background: colors.surfaceAlt, color: colors.text,
+                    fontFamily: font, fontSize: 13, fontWeight: 600, cursor: "pointer",
+                  }}>
+                    NEW SOP
+                  </button>
+                </div>
               )}
             </div>
           )}
@@ -685,26 +770,54 @@ export default function JennyApp() {
           zIndex: 1000,
         }} onClick={() => setShowPasteModal(false)}>
           <div style={{
-            background: colors.surface, borderRadius: 12, padding: 24, width: 600, maxHeight: "80vh",
-            display: "flex", flexDirection: "column", gap: 12,
+            background: colors.surface, borderRadius: 12, padding: 24, width: 640, maxHeight: "85vh",
+            display: "flex", flexDirection: "column", gap: 16, overflowY: "auto",
           }} onClick={e => e.stopPropagation()}>
             <div style={{ fontFamily: font, fontSize: 14, fontWeight: 600, color: colors.text }}>
-              Paste JENNY Config
+              External LLM Extraction
             </div>
-            <div style={{ fontSize: 11, color: colors.textDim, fontFamily: font }}>
-              Paste the Python config (JENNY_CONFIG = ...) or JSON output from your external LLM.
+
+            {/* Step 1: Copy prompt */}
+            {externalPrompt && (
+              <div style={{
+                padding: 12, background: colors.bg, border: `1px solid ${colors.border}`,
+                borderRadius: 6,
+              }}>
+                <div style={{ fontSize: 11, fontFamily: font, color: colors.accent, marginBottom: 8, fontWeight: 600 }}>
+                  STEP 1: Copy this prompt into ChatGPT, Gemini, or another LLM
+                </div>
+                <div style={{ fontSize: 10, color: colors.textDim, fontFamily: font, marginBottom: 8 }}>
+                  The prompt includes your draft text and extraction instructions. Attach the source draft file as well if your LLM supports file uploads.
+                </div>
+                <button onClick={copyPrompt} style={{
+                  width: "100%", padding: "8px 16px", borderRadius: 6, border: "none",
+                  background: promptCopied ? colors.successBg : colors.accent,
+                  color: promptCopied ? colors.success : "#fff",
+                  fontFamily: font, fontSize: 12, fontWeight: 600, cursor: "pointer",
+                }}>
+                  {promptCopied ? "COPIED TO CLIPBOARD" : "COPY PROMPT"}
+                </button>
+              </div>
+            )}
+
+            {/* Step 2: Paste config */}
+            <div>
+              <div style={{ fontSize: 11, fontFamily: font, color: colors.accent, marginBottom: 8, fontWeight: 600 }}>
+                {externalPrompt ? "STEP 2: Paste the LLM output here" : "Paste the config output from your external LLM"}
+              </div>
+              <textarea
+                value={pasteText}
+                onChange={e => setPasteText(e.target.value)}
+                placeholder={"JENNY_CONFIG = {\n    \"full_title\": \"...\",\n    ..."}
+                style={{
+                  width: "100%", height: 250, padding: 12, background: colors.bg,
+                  border: `1px solid ${colors.border}`, borderRadius: 6, color: colors.text,
+                  fontFamily: "monospace", fontSize: 11, resize: "vertical",
+                }}
+                autoFocus={!externalPrompt}
+              />
             </div>
-            <textarea
-              value={pasteText}
-              onChange={e => setPasteText(e.target.value)}
-              placeholder={"JENNY_CONFIG = {\n    \"full_title\": \"...\",\n    ..."}
-              style={{
-                width: "100%", height: 300, padding: 12, background: colors.bg,
-                border: `1px solid ${colors.border}`, borderRadius: 6, color: colors.text,
-                fontFamily: "monospace", fontSize: 11, resize: "vertical",
-              }}
-              autoFocus
-            />
+
             <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
               <button onClick={() => setShowPasteModal(false)} style={{
                 padding: "8px 20px", borderRadius: 6, border: `1px solid ${colors.border}`,

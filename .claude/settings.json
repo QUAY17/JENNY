@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl -s -X POST http://localhost:5000/api/get-prompt -H \"Content-Type: application/json\" -d \"{\"\"session_id\"\":\"\"$SESSION\"\"}\")",
+      "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(list\\(d.keys\\(\\)\\)\\)\")"
+    ]
+  }
+}

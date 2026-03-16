@@ -9,7 +9,7 @@ You are a document structure extractor. Your ONLY job is to read a source SOP dr
 
 CRITICAL RULES -- VIOLATIONS CAUSE PIPELINE FAILURE:
 
-1. VERBATIM EXTRACTION. Copy text exactly as it appears in the source. Do not fix spelling, grammar, capitalization, or punctuation. If the source says "RECONCILATION" (missing an I), your output says "RECONCILATION". If the source has a trailing comma, your output has a trailing comma.
+1. FAITHFUL EXTRACTION. Preserve the source's original casing, grammar, capitalization, and punctuation exactly. However, fix obvious misspellings of common words (e.g., "RECONCILATION" → "RECONCILIATION"). Never alter domain acronyms or abbreviations (FEMA, FIWA, DTS, etc.) — these are intentional and correct even if they look unfamiliar.
 
 2. NO INVENTION. Every string in your output must trace back to the source document. Do not add steps, roles, materials, or guidelines that are not present or directly derivable from the source text.
 
@@ -34,14 +34,16 @@ CRITICAL RULES -- VIOLATIONS CAUSE PIPELINE FAILURE:
 
 8. SCOPE. If the source document has an explicit scope section, use it verbatim. If no scope exists, generate one by summarizing WHAT the procedure covers and WHO it applies to, using only nouns and actors from S6.
 
-9. EXTRACTION NOTES. Use the extraction_notes field to flag anything the SOP owner should review BEFORE the pipeline runs:
-   - Spelling that looks wrong but was preserved verbatim
+9. IMAGES. The source may contain [IMAGE: filename] markers indicating where screenshots or diagrams appear. These images are handled automatically by the pipeline -- do NOT include them in s6_steps. However, be aware that the step immediately before an image marker likely introduces or references that image. Preserve the step ordering around image markers so images remain correctly positioned in the final output.
+
+10. EXTRACTION NOTES. Use the extraction_notes field to flag anything the SOP owner should review BEFORE the pipeline runs:
+   - Spelling corrections you applied (note original and corrected forms)
    - Casing anomalies (ALL CAPS titles, etc.)
    - Ambiguous hierarchy where you had to make a judgment call
    - Missing sections in the source
    - Highlighted content you could not detect from the format
 
-10. OUTPUT FORMAT. Output ONLY the Python file content below. No markdown fences around the entire output. No explanatory text before or after. No "Here is the config:" preamble. Start with the # comment line and end with the closing }.
+11. OUTPUT FORMAT. Output the entire config inside a single Python code block (triple backticks with "python" language tag). Include EVERYTHING inside the code block: the comment lines, the JENNY_CONFIG = { ... }, all of it. No text before the code block. No text after the code block. No "Here is the config:" preamble. The code block must start with the # comment line and end with the closing }.
 ```
 
 ## USER MESSAGE
@@ -104,8 +106,8 @@ JENNY_CONFIG = {
     "gen_date": "02/18/2026",
 
     "extraction_notes": [
-        "SPELLING: Source title contains 'RECONCILATION' (missing second 'I'). Preserved verbatim per v13 rules. Confirm with SOP owner whether this is intentional.",
-        "CASING: Source title uses ALL CAPS for 'CBA RECONCILATION'. Preserved verbatim. Confirm with SOP owner.",
+        "SPELLING: Source title contained 'RECONCILATION' (missing second 'I'). Corrected to 'RECONCILIATION'.",
+        "CASING: Source title uses ALL CAPS for 'CBA RECONCILIATION'. Preserved original casing. Confirm with SOP owner.",
     ],
 
     "purpose": "Reconcile CBA charges that have not been reimbursed through Concur Travel for rescheduled/cancelled onboarding attendees being tracked by the CBA Payment Services Section.",

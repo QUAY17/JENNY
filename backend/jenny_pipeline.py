@@ -98,9 +98,8 @@ def pid(n):
     """Generate a paraId from an integer."""
     return f"1A{n:06X}"
 
-def build_paragraph(text, para_id, ilvl=None, highlighted=False, highlight_color="yellow", style="FEMANormal", num_id="42"):
-    """Build a single OOXML paragraph."""
-    t = xml_escape(text)
+def build_paragraph(text, para_id, ilvl=None, highlighted=False, highlight_color="yellow", style="FEMANormal", num_id="42", hyperlinks=None, hyperlink_rels=None):
+    """Build a single OOXML paragraph, optionally with hyperlinks."""
     hl_color = highlight_color if highlighted else "yellow"
     ppr = f'<w:pPr><w:pStyle w:val="{style}"/>'
     if ilvl is not None:
@@ -112,10 +111,45 @@ def build_paragraph(text, para_id, ilvl=None, highlighted=False, highlight_color
     if highlighted:
         rpr += f'<w:highlight w:val="{hl_color}"/>'
     rpr += '</w:rPr>'
+    # Hyperlink-aware rPr (adds blue color + underline for linked text)
+    rpr_link = '<w:rPr><w:rStyle w:val="Hyperlink"/><w:rFonts w:ascii="Franklin Gothic Book" w:hAnsi="Franklin Gothic Book"/>'
+    if highlighted:
+        rpr_link += f'<w:highlight w:val="{hl_color}"/>'
+    rpr_link += '</w:rPr>'
+
+    # Build runs, splitting on hyperlink text
+    runs = ""
+    if hyperlinks and hyperlink_rels is not None:
+        remaining = text
+        for hl in hyperlinks:
+            hl_text = hl["text"]
+            idx = remaining.find(hl_text)
+            if idx == -1:
+                continue
+            # Text before the hyperlink
+            before = remaining[:idx]
+            if before:
+                runs += f'<w:r>{rpr}<w:t xml:space="preserve">{xml_escape(before)}</w:t></w:r>'
+            # Hyperlink run
+            rel_id = f"rId{200 + len(hyperlink_rels)}"
+            hyperlink_rels.append({"rel_id": rel_id, "uri": hl["uri"]})
+            runs += (
+                f'<w:hyperlink r:id="{rel_id}" w:history="1">'
+                f'<w:r>{rpr_link}<w:t xml:space="preserve">{xml_escape(hl_text)}</w:t></w:r>'
+                f'</w:hyperlink>'
+            )
+            remaining = remaining[idx + len(hl_text):]
+        # Trailing text
+        if remaining:
+            runs += f'<w:r>{rpr}<w:t xml:space="preserve">{xml_escape(remaining)}</w:t></w:r>'
+    else:
+        t = xml_escape(text)
+        runs = f'<w:r>{rpr}<w:t xml:space="preserve">{t}</w:t></w:r>'
+
     return (
         f'<w:p w14:paraId="{para_id}" w14:textId="{para_id}" '
         f'w:rsidR="00000001" w:rsidRDefault="00000001">'
-        f'{ppr}<w:r>{rpr}<w:t xml:space="preserve">{t}</w:t></w:r></w:p>'
+        f'{ppr}{runs}</w:p>'
     )
 
 def build_image_paragraph(para_id, rel_id, width_emu, height_emu, ilvl=0):
@@ -339,6 +373,7 @@ def run_pipeline(config, template_path, output_path, instructions_path=None):
     s6_xml = ""
     p_counter = 0
     image_rels = []  # track new image relationships to add
+    hyperlink_rels = []  # track new hyperlink relationships to add
 
     # Intro paragraph (no numbering)
     if cfg["s6_intro"]:
@@ -376,7 +411,9 @@ def run_pipeline(config, template_path, output_path, instructions_path=None):
                 step["text"], pid(p_counter),
                 ilvl=step["ilvl"],
                 highlighted=step.get("highlighted", False),
-                highlight_color=step.get("highlight_color", "yellow")
+                highlight_color=step.get("highlight_color", "yellow"),
+                hyperlinks=step.get("hyperlinks"),
+                hyperlink_rels=hyperlink_rels,
             )
             if step["ilvl"] == 0: src_ilvl0 += 1
             elif step["ilvl"] == 1: src_ilvl1 += 1
@@ -651,6 +688,20 @@ def run_pipeline(config, template_path, output_path, instructions_path=None):
         rels_path.write_text(rels_content, encoding="utf-8")
         print(f"  Added {len(image_rels)} image relationship(s) to document.xml.rels")
 
+    # --- HYPERLINK HANDLING: Add relationship entries ---
+    if hyperlink_rels:
+        rels_path = pathlib.Path("./unpacked/word/_rels/document.xml.rels")
+        rels_content = rels_path.read_text(encoding="utf-8")
+        new_rels = ""
+        for hl in hyperlink_rels:
+            new_rels += (
+                f'<Relationship Id="{hl["rel_id"]}" '
+                f'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink" '
+                f'Target="{xml_escape(hl["uri"])}" TargetMode="External"/>'
+            )
+        rels_content = rels_content.replace("</Relationships>", new_rels + "</Relationships>")
+        rels_path.write_text(rels_content, encoding="utf-8")
+        print(f"  Added {len(hyperlink_rels)} hyperlink relationship(s) to document.xml.rels")
 
     # ============================================================
     # FULL VALIDATION GATE (matches v13 Phase 7/8 harness)
@@ -765,10 +816,13 @@ def run_pipeline(config, template_path, output_path, instructions_path=None):
             chk("S6", f"Total ilvl3: {fi3} == {BASELINE_ILVL3 + src_ilvl3}", fi3 == BASELINE_ILVL3 + src_ilvl3)
 
         # Key content phrases (first 8 text steps, skip image entries)
+        # Compare against XML-escaped text since quotes become &quot; in XML
+        import html as _html
+        s6_region_decoded = _html.unescape(s6_region)
         text_steps_for_check = [s for s in cfg["s6_steps"] if s.get("type", "text") == "text"]
         for step in text_steps_for_check[:8]:
             phrase = step["text"][:45]
-            chk("S6", f"Contains '{phrase}'", step["text"][:30] in s6_region)
+            chk("S6", f"Contains '{phrase}'", step["text"][:30] in s6_region or step["text"][:30] in s6_region_decoded)
 
         # Image count
         if src_images > 0:

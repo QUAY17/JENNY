@@ -125,10 +125,10 @@ def sanitize_config(config):
         config["structure_type"] = "single"
         issues.append("Reset invalid structure_type to 'single'")
 
-    # Default cover_date to current month + year
+    # Leave cover_date empty if not found — user must fill it in
     if not config.get("cover_date") or config["cover_date"].strip() == "":
-        config["cover_date"] = datetime.now().strftime("%B %Y")
-        issues.append(f"Set cover_date to {config['cover_date']}")
+        config["cover_date"] = ""
+        issues.append("No cover_date found in source. Please set the cover date.")
 
     # Ensure required fields exist
     defaults = {
@@ -176,7 +176,11 @@ def write_config_py(config, path):
                         ilvl = item.get("ilvl", 0)
                         hl = item.get("highlighted", False)
                         hl_color = item.get("highlight_color", "yellow")
-                        lines.append(f'        {{"type": "text", "text": "{text_esc}", "ilvl": {ilvl}, "highlighted": {hl}, "highlight_color": "{hl_color}"}},')
+                        step_dict = f'{{"type": "text", "text": "{text_esc}", "ilvl": {ilvl}, "highlighted": {hl}, "highlight_color": "{hl_color}"'
+                        if item.get("hyperlinks"):
+                            step_dict += f', "hyperlinks": {json.dumps(item["hyperlinks"])}'
+                        step_dict += "}"
+                        lines.append(f'        {step_dict},')
                 lines.append("    ],")
             else:
                 # string arrays
@@ -435,6 +439,28 @@ def extract():
             except ImportError:
                 pass  # PyMuPDF not installed, skip image extraction
 
+            # --- PDF HYPERLINK EXTRACTION (via PyMuPDF) ---
+            hyperlinks = []
+            try:
+                import fitz as fitz_hl
+                pdf_hl = fitz_hl.open(draft_path)
+                for page_num in range(len(pdf_hl)):
+                    page = pdf_hl[page_num]
+                    for link in page.get_links():
+                        if link.get("kind") == 2 and link.get("uri"):  # kind 2 = URI
+                            # Get the text under the link rect
+                            rect = fitz_hl.Rect(link["from"])
+                            link_text = page.get_text("text", clip=rect).strip()
+                            if link_text:
+                                hyperlinks.append({
+                                    "text": link_text,
+                                    "uri": link["uri"],
+                                })
+                pdf_hl.close()
+            except Exception:
+                pass
+
+            sessions[session_id]["hyperlinks"] = hyperlinks
             sessions[session_id]["image_positions"] = image_positions
             sessions[session_id]["image_source"] = "pdf"
 
@@ -443,15 +469,33 @@ def extract():
             with zipfile.ZipFile(draft_path, 'r') as z:
                 xml = z.read('word/document.xml').decode('utf-8')
 
-                # --- IMAGE EXTRACTION ---
-                # Build rId -> filename mapping from rels
+                # --- HYPERLINK + IMAGE EXTRACTION ---
+                # Build rId mappings from rels
                 rid_to_file = {}
+                rid_to_hyperlink = {}
                 try:
                     rels_xml = z.read('word/_rels/document.xml.rels').decode('utf-8')
                     for rm in re.finditer(r'Id="(rId\d+)"[^>]*Target="media/([^"]+)"', rels_xml):
                         rid_to_file[rm.group(1)] = rm.group(2)
+                    for rm in re.finditer(r'Id="(rId\d+)"[^>]*Type="[^"]*hyperlink[^"]*"[^>]*Target="([^"]+)"', rels_xml):
+                        rid_to_hyperlink[rm.group(1)] = rm.group(2)
                 except KeyError:
-                    pass  # No rels file = no images
+                    pass  # No rels file
+
+                # Extract hyperlinks from document.xml
+                docx_hyperlinks = []
+                for hm in re.finditer(r'<w:hyperlink[^>]*>(.*?)</w:hyperlink>', xml, re.DOTALL):
+                    full_tag = hm.group(0)
+                    inner = hm.group(1)
+                    texts = re.findall(r'<w:t[^>]*>([^<]*)</w:t>', inner)
+                    link_text = ''.join(texts).strip()
+                    # External hyperlink via r:id
+                    rid_m = re.search(r'r:id="(rId\d+)"', full_tag)
+                    if rid_m and rid_m.group(1) in rid_to_hyperlink:
+                        docx_hyperlinks.append({
+                            "text": link_text,
+                            "uri": rid_to_hyperlink[rid_m.group(1)],
+                        })
 
                 # Extract image files to session images directory
                 session_dir = UPLOAD_DIR / session_id
@@ -513,15 +557,35 @@ def extract():
 
             draft_text = "\n".join(structured_lines)
 
-            # Store image positions on session for post-LLM splicing
+            # Store image positions and hyperlinks on session for post-LLM splicing
             sessions[session_id]["image_positions"] = image_positions
+            sessions[session_id]["hyperlinks"] = docx_hyperlinks
 
     except Exception as e:
         return jsonify({"error": f"Failed to read draft: {e}"}), 500
 
     # ============================================================
     # STEP 3: Build the user message with draft text appended
+    # Inject image markers so LLM knows images exist in the source
     # ============================================================
+    image_positions = sessions[session_id].get("image_positions", [])
+    if image_positions:
+        lines = draft_text.split("\n")
+        image_source = sessions[session_id].get("image_source", "docx")
+        if image_source == "pdf":
+            # Insert markers proportionally through the text
+            for img in sorted(image_positions, key=lambda x: x["position_frac"], reverse=True):
+                insert_line = min(int(img["position_frac"] * len(lines)), len(lines))
+                lines.insert(insert_line, f'[IMAGE: {img["src"]}]')
+        else:
+            # .docx: insert after numbered paragraph index
+            offset = 0
+            for img in sorted(image_positions, key=lambda x: x.get("after_numbered_idx", 0)):
+                insert_line = min(img.get("after_numbered_idx", 0) + 1 + offset, len(lines))
+                lines.insert(insert_line, f'[IMAGE: {img["src"]}]')
+                offset += 1
+        draft_text = "\n".join(lines)
+
     user_msg = user_msg_template + "\n\n--- SOURCE DRAFT CONTENT ---\n\n" + draft_text[:15000]
 
     # ============================================================
@@ -641,6 +705,22 @@ def extract():
         config["s6_steps"] = new_steps
 
     # ============================================================
+    # STEP 7c: Attach hyperlinks to matching steps
+    # ============================================================
+    hyperlinks = sessions[session_id].get("hyperlinks", [])
+    if hyperlinks and "s6_steps" in config:
+        for step in config["s6_steps"]:
+            if step.get("type", "text") != "text":
+                continue
+            step_links = []
+            step_text = step.get("text", "")
+            for hl in hyperlinks:
+                if hl["text"] and hl["text"] in step_text:
+                    step_links.append({"text": hl["text"], "uri": hl["uri"]})
+            if step_links:
+                step["hyperlinks"] = step_links
+
+    # ============================================================
     # STEP 8: Return config + stats
     # ============================================================
     steps = config.get("s6_steps", [])
@@ -698,6 +778,87 @@ def sanitize():
         "issues": issues,
         "stats": stats,
     })
+
+
+@app.route("/api/get-prompt", methods=["POST"])
+def get_prompt():
+    """Return the extraction prompt with the user's draft text pre-assembled.
+    Users copy this into an external LLM (ChatGPT, Gemini, etc.)."""
+    data = request.json
+    session_id = data.get("session_id")
+
+    if not session_id or session_id not in sessions:
+        return jsonify({"error": "Upload files first"}), 400
+
+    draft_path = sessions[session_id].get("draft")
+    if not draft_path or not os.path.exists(draft_path):
+        return jsonify({"error": "No draft uploaded"}), 400
+
+    # Load prompt
+    prompt_path = PIPELINE_DIR / "JENNY_Phase0_Extraction_Prompt.md"
+    if not prompt_path.exists():
+        return jsonify({"error": "Prompt file not found"}), 500
+
+    prompt_content = prompt_path.read_text(encoding="utf-8")
+    blocks = re.findall(r'```\n(.*?)```', prompt_content, re.DOTALL)
+    if len(blocks) < 2:
+        return jsonify({"error": "Could not parse prompt"}), 500
+
+    system_msg = blocks[0].strip()
+    user_msg_template = blocks[1].strip()
+
+    # Extract draft text and images
+    image_positions = sessions[session_id].get("image_positions", [])
+    try:
+        if draft_path.lower().endswith(".pdf"):
+            import fitz
+            pdf = fitz.open(draft_path)
+            draft_text = "\n".join(page.get_text() for page in pdf)
+            # Extract images if not already done
+            if not image_positions:
+                img_dir = UPLOAD_DIR / session_id / "images"
+                img_dir.mkdir(parents=True, exist_ok=True)
+                total_pages = len(pdf)
+                img_idx = 0
+                for page_num, page in enumerate(pdf):
+                    for img_info in page.get_images(full=True):
+                        xref = img_info[0]
+                        pix = fitz.Pixmap(pdf, xref)
+                        if pix.n > 4:
+                            pix = fitz.Pixmap(fitz.csRGB, pix)
+                        fname = f"pdf_image_{img_idx}.png"
+                        pix.save(str(img_dir / fname))
+                        image_positions.append({
+                            "src": fname,
+                            "width_emu": pix.width * 9525,
+                            "height_emu": pix.height * 9525,
+                            "position_frac": (page_num + 0.5) / max(total_pages, 1),
+                        })
+                        img_idx += 1
+                sessions[session_id]["image_positions"] = image_positions
+                sessions[session_id]["image_source"] = "pdf"
+            pdf.close()
+        else:
+            import zipfile
+            with zipfile.ZipFile(draft_path, 'r') as z:
+                xml = z.read('word/document.xml').decode('utf-8')
+            draft_text = re.sub(r'<[^>]+>', ' ', xml)
+            draft_text = re.sub(r'\s+', ' ', draft_text).strip()
+    except Exception as e:
+        return jsonify({"error": f"Could not read draft: {e}"}), 500
+
+    # Inject image markers
+    if image_positions:
+        lines = draft_text.split("\n")
+        for img in sorted(image_positions, key=lambda x: x.get("position_frac", 0), reverse=True):
+            insert_line = int(img.get("position_frac", 0) * len(lines))
+            lines.insert(insert_line, f'[IMAGE: {img["src"]}]')
+        draft_text = "\n".join(lines)
+
+    # Assemble the full prompt
+    full_prompt = f"{system_msg}\n\n---\n\n{user_msg_template}\n\n---\n\nSOURCE DOCUMENT:\n\n{draft_text}"
+
+    return jsonify({"prompt": full_prompt})
 
 
 @app.route("/api/import-config", methods=["POST"])
@@ -767,6 +928,65 @@ def import_config():
 
     # Sanitize
     config, issues = sanitize_config(config)
+
+    # Splice images and hyperlinks from session (same as /api/extract Step 7b/7c)
+    session_id = data.get("session_id")
+    if session_id and session_id in sessions:
+        # Image splice
+        image_positions = sessions[session_id].get("image_positions", [])
+        if image_positions and "s6_steps" in config:
+            image_source = sessions[session_id].get("image_source", "docx")
+
+            def make_image_entry(img):
+                return {
+                    "type": "image",
+                    "src": img["src"],
+                    "ilvl": 0,
+                    "width_emu": img["width_emu"],
+                    "height_emu": img["height_emu"],
+                }
+
+            if image_source == "pdf":
+                num_steps = len(config["s6_steps"])
+                new_steps = []
+                img_at_step = {}
+                for img in image_positions:
+                    target_idx = int(img["position_frac"] * num_steps)
+                    target_idx = min(target_idx, num_steps - 1)
+                    img_at_step.setdefault(target_idx, []).append(img)
+                for step_idx, step in enumerate(config["s6_steps"]):
+                    step["type"] = "text"
+                    new_steps.append(step)
+                    for img in img_at_step.get(step_idx, []):
+                        new_steps.append(make_image_entry(img))
+            else:
+                new_steps = []
+                for step_idx, step in enumerate(config["s6_steps"]):
+                    for img in image_positions:
+                        if img["after_numbered_idx"] == step_idx - 1:
+                            new_steps.append(make_image_entry(img))
+                    step["type"] = "text"
+                    new_steps.append(step)
+                last_idx = len(config["s6_steps"]) - 1
+                for img in image_positions:
+                    if img["after_numbered_idx"] >= last_idx:
+                        new_steps.append(make_image_entry(img))
+
+            config["s6_steps"] = new_steps
+
+        # Hyperlink attach
+        hyperlinks = sessions[session_id].get("hyperlinks", [])
+        if hyperlinks and "s6_steps" in config:
+            for step in config["s6_steps"]:
+                if step.get("type", "text") != "text":
+                    continue
+                step_links = []
+                step_text = step.get("text", "")
+                for hl in hyperlinks:
+                    if hl["text"] and hl["text"] in step_text:
+                        step_links.append({"text": hl["text"], "uri": hl["uri"]})
+                if step_links:
+                    step["hyperlinks"] = step_links
 
     # Stats (filter image entries from text-specific counts)
     steps = config.get("s6_steps", [])
@@ -933,4 +1153,9 @@ if __name__ == "__main__":
         import threading
         threading.Timer(1.5, lambda: webbrowser.open(f"http://localhost:{port}")).start()
         print(f"  Opening browser at http://localhost:{port}")
-    app.run(host=host, port=port, debug=debug)
+    if debug:
+        app.run(host=host, port=port, debug=True)
+    else:
+        from waitress import serve
+        print(f" * Serving on http://{host}:{port}")
+        serve(app, host=host, port=port, threads=4)

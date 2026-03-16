@@ -185,6 +185,30 @@ function ConfigEditor({ config, onChange }) {
       );
     }
 
+    if (Array.isArray(value) && key === "extraction_notes") {
+      if (value.length === 0) return null;
+      return (
+        <div key={pathStr} style={{
+          marginBottom: 16, padding: "10px 14px",
+          background: "rgba(245,158,11,0.08)", border: `1px solid ${colors.warning}`,
+          borderRadius: 6, borderLeft: `4px solid ${colors.warning}`,
+        }}>
+          <label style={{ display: "block", fontSize: 11, fontFamily: font, color: colors.warning, marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.05em", fontWeight: 700 }}>
+            Extraction Notes ({value.length})
+          </label>
+          {value.map((item, i) => (
+            <div key={i} style={{
+              fontSize: 12, fontFamily: fontBody, color: colors.text,
+              marginBottom: i < value.length - 1 ? 6 : 0, paddingLeft: 8,
+              borderLeft: `2px solid rgba(245,158,11,0.3)`,
+            }}>
+              {item}
+            </div>
+          ))}
+        </div>
+      );
+    }
+
     if (Array.isArray(value)) {
       return (
         <div key={pathStr} style={{ marginBottom: 12 }}>
@@ -234,9 +258,12 @@ function ConfigEditor({ config, onChange }) {
   };
 
   const fieldOrder = [
+    "extraction_notes",
     "full_title", "short_title", "structure_type", "cover_date",
-    "extraction_notes", "purpose", "scope", "s6_intro", "s6_steps",
-    "s4_roles", "s5_materials", "s7_guidelines", "s3_supersession"
+    "purpose", "scope", "s3_supersession",
+    "s4_roles", "s5_materials",
+    "s6_intro", "s6_steps",
+    "s7_guidelines",
   ];
 
   return (
@@ -339,7 +366,7 @@ export default function JennyApp() {
       const resp = await fetch(`${API_BASE}/api/import-config`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ raw_config: rawText }),
+        body: JSON.stringify({ raw_config: rawText, session_id: sessionId }),
       });
       const data = await resp.json();
 
