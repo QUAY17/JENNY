@@ -625,16 +625,14 @@ export default function JennyApp() {
       }}>
         <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
           <span style={{ fontFamily: font, fontSize: 20, fontWeight: 700, color: colors.success, letterSpacing: "0.05em" }}>JENNY</span>
-          <span style={{ fontSize: 11, color: colors.textDim, fontFamily: font }}>FEMA Document Automation</span>
+          <span style={{ fontSize: 11, color: colors.textDim, fontFamily: font }}>Document Automation</span>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <StatusBadge status={status} />
-          {status !== "idle" && (
-            <button onClick={resetAll} style={{
-              padding: "4px 12px", borderRadius: 4, border: `1px solid ${colors.border}`,
-              background: "transparent", color: colors.textDim, fontFamily: font, fontSize: 11, cursor: "pointer",
-            }}>RESET</button>
-          )}
+          <button onClick={resetAll} style={{
+            padding: "4px 12px", borderRadius: 4, border: `1px solid ${colors.border}`,
+            background: "transparent", color: colors.textMuted, fontFamily: font, fontSize: 11, cursor: "pointer",
+          }}>RESET</button>
         </div>
       </div>
 
@@ -680,7 +678,7 @@ export default function JennyApp() {
               marginTop: 12, padding: "8px 0", borderTop: `1px solid ${colors.border}`,
               display: "flex", alignItems: "center", gap: 10,
             }}>
-              <span style={{ fontSize: 10, fontFamily: font, color: colors.textDim, whiteSpace: "nowrap" }}>OR</span>
+              <span style={{ fontSize: 10, fontFamily: font, color: colors.success, fontWeight: 700, whiteSpace: "nowrap" }}>OR</span>
               <button onClick={handleConfigPaste} style={{
                 flex: 1, padding: "10px 0", borderRadius: 6, border: `1px solid ${colors.border}`,
                 background: colors.surfaceAlt, color: colors.textMuted, fontFamily: font, fontSize: 11, fontWeight: 600,

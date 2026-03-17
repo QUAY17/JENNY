@@ -286,6 +286,143 @@ def health():
     return jsonify({"status": "ok", "version": "JENNY v13 Backend"})
 
 
+def _extract_draft_assets(session_id, draft_path):
+    """Extract images and hyperlinks from a draft file at upload time.
+    Stores results on the session so they're available for any flow."""
+    if sessions[session_id].get("image_positions"):
+        return  # Already extracted
+
+    draft_path_lower = draft_path.lower()
+    session_dir = UPLOAD_DIR / session_id
+    images_dir = session_dir / "images"
+    images_dir.mkdir(exist_ok=True)
+
+    if draft_path_lower.endswith(".pdf"):
+        image_positions = []
+        hyperlinks = []
+        try:
+            import fitz
+            pdf_doc = fitz.open(draft_path)
+            total_pages = len(pdf_doc)
+            img_counter = 0
+
+            for page_num in range(total_pages):
+                page = pdf_doc[page_num]
+                page_h = page.rect.height
+
+                for img_info in page.get_image_info(xrefs=True):
+                    xref = img_info.get("xref", 0)
+                    bbox = img_info.get("bbox", (0, 0, 0, 0))
+                    if not xref:
+                        continue
+                    render_w = bbox[2] - bbox[0]
+                    render_h = bbox[3] - bbox[1]
+                    y_frac = bbox[1] / page_h if page_h else 0
+                    if render_w < 30 and render_h < 30:
+                        continue
+                    if page_num == 0 and y_frac < 0.15:
+                        continue
+                    try:
+                        base_image = pdf_doc.extract_image(xref)
+                        img_bytes = base_image["image"]
+                        img_ext = base_image.get("ext", "png")
+                        img_name = f"pdf_image_{img_counter}.{img_ext}"
+                        (images_dir / img_name).write_bytes(img_bytes)
+                        position_frac = (page_num + (bbox[1] / page_h)) / max(total_pages, 1)
+                        image_positions.append({
+                            "src": img_name,
+                            "width_emu": int(render_w * 12700),
+                            "height_emu": int(render_h * 12700),
+                            "position_frac": position_frac,
+                        })
+                        img_counter += 1
+                    except Exception:
+                        continue
+
+                # Hyperlinks
+                for link in page.get_links():
+                    if link.get("kind") == 2 and link.get("uri"):
+                        rect = fitz.Rect(link["from"])
+                        link_text = page.get_text("text", clip=rect).strip()
+                        if link_text:
+                            hyperlinks.append({"text": link_text, "uri": link["uri"]})
+
+            pdf_doc.close()
+        except ImportError:
+            pass
+
+        sessions[session_id]["image_positions"] = image_positions
+        sessions[session_id]["hyperlinks"] = hyperlinks
+        sessions[session_id]["image_source"] = "pdf"
+
+    elif draft_path_lower.endswith(".docx"):
+        import zipfile
+        image_positions = []
+        hyperlinks = []
+        try:
+            with zipfile.ZipFile(draft_path, 'r') as z:
+                xml = z.read('word/document.xml').decode('utf-8')
+                rid_to_file = {}
+                rid_to_hyperlink = {}
+                try:
+                    rels_xml = z.read('word/_rels/document.xml.rels').decode('utf-8')
+                    for rm in re.finditer(r'Id="(rId\d+)"[^>]*Target="media/([^"]+)"', rels_xml):
+                        rid_to_file[rm.group(1)] = rm.group(2)
+                    for rm in re.finditer(r'Id="(rId\d+)"[^>]*Type="[^"]*hyperlink[^"]*"[^>]*Target="([^"]+)"', rels_xml):
+                        rid_to_hyperlink[rm.group(1)] = rm.group(2)
+                except KeyError:
+                    pass
+
+                # Extract hyperlinks
+                for hm in re.finditer(r'<w:hyperlink[^>]*>(.*?)</w:hyperlink>', xml, re.DOTALL):
+                    full_tag = hm.group(0)
+                    inner = hm.group(1)
+                    texts = re.findall(r'<w:t[^>]*>([^<]*)</w:t>', inner)
+                    link_text = ''.join(texts).strip()
+                    rid_m = re.search(r'r:id="(rId\d+)"', full_tag)
+                    if rid_m and rid_m.group(1) in rid_to_hyperlink:
+                        hyperlinks.append({"text": link_text, "uri": rid_to_hyperlink[rid_m.group(1)]})
+
+                # Extract image files
+                for img_filename in rid_to_file.values():
+                    img_zip_path = f"word/media/{img_filename}"
+                    if img_zip_path in z.namelist():
+                        (images_dir / img_filename).write_bytes(z.read(img_zip_path))
+
+                # Track image positions in document
+                numbered_para_idx = 0
+                for m_para in re.finditer(r'<w:p [^>]*>(.*?)</w:p>', xml, re.DOTALL):
+                    para = m_para.group(1)
+                    has_drawing = '<w:drawing' in para
+                    texts = re.findall(r'<w:t[^>]*>([^<]*)</w:t>', para)
+                    text = ''.join(texts).strip()
+
+                    if has_drawing:
+                        blip_m = re.search(r'<a:blip[^>]*r:embed="(rId\d+)"', para)
+                        extent_m = re.search(r'<wp:extent\\s+cx="(\\d+)"\\s+cy="(\\d+)"', para)
+                        if blip_m and blip_m.group(1) in rid_to_file:
+                            img_file = rid_to_file[blip_m.group(1)]
+                            w_emu = int(extent_m.group(1)) if extent_m else 4572000
+                            h_emu = int(extent_m.group(2)) if extent_m else 3429000
+                            image_positions.append({
+                                "src": img_file,
+                                "width_emu": w_emu,
+                                "height_emu": h_emu,
+                                "after_numbered_idx": numbered_para_idx - 1,
+                            })
+
+                    if text:
+                        ilvl_m = re.search(r'w:ilvl w:val="(\\d+)"', para)
+                        if ilvl_m:
+                            numbered_para_idx += 1
+        except Exception:
+            pass
+
+        sessions[session_id]["image_positions"] = image_positions
+        sessions[session_id]["hyperlinks"] = hyperlinks
+        sessions[session_id]["image_source"] = "docx"
+
+
 @app.route("/api/upload", methods=["POST"])
 def upload():
     """Upload template and/or draft files. Returns a session ID."""
@@ -306,6 +443,11 @@ def upload():
             path = session_dir / f"{field}{ext}"
             f.save(str(path))
             sessions[session_id][field] = str(path)
+
+            # Extract images and hyperlinks at upload time so they're available
+            # for both the API extract and external LLM paste flows
+            if field == "draft":
+                _extract_draft_assets(session_id, str(path))
 
     return jsonify({
         "session_id": session_id,
@@ -660,11 +802,11 @@ def extract():
     if image_positions and "s6_steps" in config:
         image_source = sessions[session_id].get("image_source", "docx")
 
-        def make_image_entry(img):
+        def make_image_entry(img, parent_ilvl=0):
             return {
                 "type": "image",
                 "src": img["src"],
-                "ilvl": 0,
+                "ilvl": parent_ilvl,
                 "width_emu": img["width_emu"],
                 "height_emu": img["height_emu"],
             }
@@ -673,8 +815,7 @@ def extract():
             # PDF: distribute images proportionally through steps
             num_steps = len(config["s6_steps"])
             new_steps = []
-            # Map each image to a step index based on its position fraction
-            img_at_step = {}  # step_idx -> [image entries]
+            img_at_step = {}
             for img in image_positions:
                 target_idx = int(img["position_frac"] * num_steps)
                 target_idx = min(target_idx, num_steps - 1)
@@ -683,24 +824,24 @@ def extract():
             for step_idx, step in enumerate(config["s6_steps"]):
                 step["type"] = "text"
                 new_steps.append(step)
-                # Insert images after this step
                 for img in img_at_step.get(step_idx, []):
-                    new_steps.append(make_image_entry(img))
+                    new_steps.append(make_image_entry(img, step.get("ilvl", 0)))
         else:
             # .docx: position by after_numbered_idx
             new_steps = []
             for step_idx, step in enumerate(config["s6_steps"]):
                 for img in image_positions:
                     if img["after_numbered_idx"] == step_idx - 1:
-                        new_steps.append(make_image_entry(img))
+                        prev_ilvl = config["s6_steps"][step_idx - 1].get("ilvl", 0) if step_idx > 0 else 0
+                        new_steps.append(make_image_entry(img, prev_ilvl))
                 step["type"] = "text"
                 new_steps.append(step)
 
-            # Trailing images (after the last step)
             last_idx = len(config["s6_steps"]) - 1
             for img in image_positions:
                 if img["after_numbered_idx"] >= last_idx:
-                    new_steps.append(make_image_entry(img))
+                    last_ilvl = config["s6_steps"][-1].get("ilvl", 0) if config["s6_steps"] else 0
+                    new_steps.append(make_image_entry(img, last_ilvl))
 
         config["s6_steps"] = new_steps
 
@@ -937,11 +1078,11 @@ def import_config():
         if image_positions and "s6_steps" in config:
             image_source = sessions[session_id].get("image_source", "docx")
 
-            def make_image_entry(img):
+            def make_image_entry(img, parent_ilvl=0):
                 return {
                     "type": "image",
                     "src": img["src"],
-                    "ilvl": 0,
+                    "ilvl": parent_ilvl,
                     "width_emu": img["width_emu"],
                     "height_emu": img["height_emu"],
                 }
@@ -958,19 +1099,21 @@ def import_config():
                     step["type"] = "text"
                     new_steps.append(step)
                     for img in img_at_step.get(step_idx, []):
-                        new_steps.append(make_image_entry(img))
+                        new_steps.append(make_image_entry(img, step.get("ilvl", 0)))
             else:
                 new_steps = []
                 for step_idx, step in enumerate(config["s6_steps"]):
                     for img in image_positions:
                         if img["after_numbered_idx"] == step_idx - 1:
-                            new_steps.append(make_image_entry(img))
+                            prev_ilvl = config["s6_steps"][step_idx - 1].get("ilvl", 0) if step_idx > 0 else 0
+                            new_steps.append(make_image_entry(img, prev_ilvl))
                     step["type"] = "text"
                     new_steps.append(step)
                 last_idx = len(config["s6_steps"]) - 1
                 for img in image_positions:
                     if img["after_numbered_idx"] >= last_idx:
-                        new_steps.append(make_image_entry(img))
+                        last_ilvl = config["s6_steps"][-1].get("ilvl", 0) if config["s6_steps"] else 0
+                        new_steps.append(make_image_entry(img, last_ilvl))
 
             config["s6_steps"] = new_steps
 

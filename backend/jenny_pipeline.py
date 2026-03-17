@@ -261,19 +261,25 @@ def run_pipeline(config, template_path, output_path, instructions_path=None):
     scope_esc = xml_escape(cfg["scope"])
     date_esc = xml_escape(cfg["cover_date"])
 
-    # Replacement 1: S6 heading
+    # Replacement 1: Cover page title (sz=72 large font) — full title
+    # Must run FIRST before generic "Enter Title" replacements
+    # Template XML is pretty-printed so we match across whitespace
+    doc = re.sub(
+        r'(<w:sz w:val="72"/>\s*<w:szCs w:val="72"/>\s*</w:rPr>\s*</w:pPr>\s*<w:r>\s*<w:rPr>\s*<w:sz w:val="72"/>\s*<w:szCs w:val="72"/>\s*</w:rPr>\s*<w:t>)Enter Title(</w:t>)',
+        lambda m: f'{m.group(1)}{full_esc}{m.group(2)}',
+        doc, count=1)
+    # Replacement 2: S6 heading (short title)
     doc = doc.replace("Enter Title (Step-by-Step Instructions)",
                       f"{short_esc} (Step-by-Step Instructions)")
-    # Replacement 2: Chapter heading (en-dash case)
-    doc = doc.replace("SOP &#x2013; Enter Title", f"SOP - {full_esc}")
-    doc = doc.replace("SOP \u2013 Enter Title", f"SOP - {full_esc}")
-    # Replacement 2b: Split-run case
-    doc = doc.replace("&#x2013; Enter Title", f"- {full_esc}")
-    doc = doc.replace("\u2013 Enter Title", f"- {full_esc}")
-    # Replacement 3: Cover page
-    doc = doc.replace("<w:t>Enter Title</w:t>", f"<w:t>{full_esc}</w:t>")
+    # Replacement 3: TOC chapter heading (short title)
+    doc = doc.replace("SOP &#x2013; Enter Title", f"SOP - {short_esc}")
+    doc = doc.replace("SOP \u2013 Enter Title", f"SOP - {short_esc}")
+    doc = doc.replace("&#x2013; Enter Title", f"- {short_esc}")
+    doc = doc.replace("\u2013 Enter Title", f"- {short_esc}")
+    # Replacement 4: All remaining "Enter Title" — short title
+    doc = doc.replace("<w:t>Enter Title</w:t>", f"<w:t>{short_esc}</w:t>")
     doc = doc.replace('<w:t xml:space="preserve">Enter Title</w:t>',
-                      f'<w:t xml:space="preserve">{full_esc}</w:t>')
+                      f'<w:t xml:space="preserve">{short_esc}</w:t>')
     # Replacement 4: Purpose
     doc = doc.replace("<w:t>Enter Purpose</w:t>", f"<w:t>{purpose_esc}</w:t>")
     doc = doc.replace('<w:t xml:space="preserve">Enter Purpose</w:t>',
@@ -644,7 +650,7 @@ def run_pipeline(config, template_path, output_path, instructions_path=None):
     if hp_idx > -1:
         hp_start = find_para_start(hdr, hp_idx)
         hp_end = hdr.find("</w:p>", hp_idx) + 6
-        header_title = f"{full_esc} - {date_esc}"
+        header_title = f"{short_esc} - {date_esc}"
         new_hdr = (
             '<w:p w14:paraId="7A30C5B7" w14:textId="199D5D59" '
             'w:rsidR="00FA4BB8" w:rsidRDefault="00FA4BB8">'
@@ -760,9 +766,9 @@ def run_pipeline(config, template_path, output_path, instructions_path=None):
     chk("Title", "Full title in doc", full_esc in doc)
     chk("Title", "Short title in S6 heading",
         short_esc + " (Step-by-Step Instructions)" in doc)
-    chk("Title", "Title in header",
-        cfg["full_title"].replace("&amp;", "&").split(" - ")[0][:20].replace("&", "&amp;") in hdr_all_text
-        or cfg["full_title"].split(" - ")[0][:20] in hdr_all_text)
+    chk("Title", "Short title in header",
+        cfg["short_title"].replace("&amp;", "&")[:20] in hdr_all_text
+        or short_esc[:20] in hdr_all_text)
 
     # === STRUCTURE: FEMAHEADING1 ===
     headings = find_fema_headings(doc)
