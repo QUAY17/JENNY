@@ -427,7 +427,7 @@ def _extract_draft_assets(session_id, draft_path):
 
                     if has_drawing:
                         blip_m = re.search(r'<a:blip[^>]*r:embed="(rId\d+)"', para)
-                        extent_m = re.search(r'<wp:extent\\s+cx="(\\d+)"\\s+cy="(\\d+)"', para)
+                        extent_m = re.search(r'<wp:extent\s+cx="(\d+)"\s+cy="(\d+)"', para)
                         if blip_m and blip_m.group(1) in rid_to_file:
                             img_file = rid_to_file[blip_m.group(1)]
                             w_emu = int(extent_m.group(1)) if extent_m else 4572000
@@ -440,7 +440,7 @@ def _extract_draft_assets(session_id, draft_path):
                             })
 
                     if text:
-                        ilvl_m = re.search(r'w:ilvl w:val="(\\d+)"', para)
+                        ilvl_m = re.search(r'w:ilvl w:val="(\d+)"', para)
                         if ilvl_m:
                             # Track highlights on numbered steps
                             hl_vals = re.findall(r'w:highlight w:val="([^"]+)"', para)
@@ -448,12 +448,11 @@ def _extract_draft_assets(session_id, draft_path):
                                 highlights.append({
                                     "step_idx": numbered_para_idx,
                                     "color": hl_vals[0],
-                                    "text_prefix": text[:30],
+                                    "text_prefix": text[:40],
                                 })
                             numbered_para_idx += 1
         except Exception:
             pass
-
         sessions[session_id]["image_positions"] = image_positions
         sessions[session_id]["hyperlinks"] = hyperlinks
         sessions[session_id]["highlights"] = highlights
@@ -826,15 +825,27 @@ def extract():
 
     # ============================================================
     # STEP 7d: Splice highlights from docx (if LLM missed them)
+    # Match by text prefix first, fall back to index
     # ============================================================
     src_highlights = sessions[session_id].get("highlights", [])
     if src_highlights and "s6_steps" in config:
         text_steps_hl = [s for s in config["s6_steps"] if s.get("type", "text") == "text"]
         for hl in src_highlights:
-            idx = hl.get("step_idx", -1)
-            if 0 <= idx < len(text_steps_hl):
-                text_steps_hl[idx]["highlighted"] = True
-                text_steps_hl[idx]["highlight_color"] = hl.get("color", "yellow")
+            prefix = hl.get("text_prefix", "")
+            color = hl.get("color", "yellow")
+            matched = False
+            if prefix:
+                for step in text_steps_hl:
+                    if step.get("text", "")[:len(prefix)] == prefix or prefix in step.get("text", ""):
+                        step["highlighted"] = True
+                        step["highlight_color"] = color
+                        matched = True
+                        break
+            if not matched:
+                idx = hl.get("step_idx", -1)
+                if 0 <= idx < len(text_steps_hl):
+                    text_steps_hl[idx]["highlighted"] = True
+                    text_steps_hl[idx]["highlight_color"] = color
 
     # ============================================================
     # STEP 8: Return config + stats
@@ -1109,15 +1120,26 @@ def import_config():
                 if step_links:
                     step["hyperlinks"] = step_links
 
-        # Highlight splice: apply highlights extracted from docx at upload
+        # Highlight splice: match by text prefix, fall back to index
         src_highlights = sessions[session_id].get("highlights", [])
         if src_highlights and "s6_steps" in config:
             text_steps = [s for s in config["s6_steps"] if s.get("type", "text") == "text"]
             for hl in src_highlights:
-                idx = hl.get("step_idx", -1)
-                if 0 <= idx < len(text_steps):
-                    text_steps[idx]["highlighted"] = True
-                    text_steps[idx]["highlight_color"] = hl.get("color", "yellow")
+                prefix = hl.get("text_prefix", "")
+                color = hl.get("color", "yellow")
+                matched = False
+                if prefix:
+                    for step in text_steps:
+                        if step.get("text", "")[:len(prefix)] == prefix or prefix in step.get("text", ""):
+                            step["highlighted"] = True
+                            step["highlight_color"] = color
+                            matched = True
+                            break
+                if not matched:
+                    idx = hl.get("step_idx", -1)
+                    if 0 <= idx < len(text_steps):
+                        text_steps[idx]["highlighted"] = True
+                        text_steps[idx]["highlight_color"] = color
 
     # Stats (filter image entries from text-specific counts)
     steps = config.get("s6_steps", [])
