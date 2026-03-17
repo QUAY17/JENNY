@@ -50,4 +50,4 @@ Click **NEW SOP** to start over with a different draft.
 - The LLM extracts text content only -- images, hyperlinks, and highlights are handled automatically by JENNY from your uploaded draft file. This is why you must upload the draft in both places.
 - If the LLM misses steps or gets the hierarchy wrong, fix it in the review screen before generating.
 - Highlighted steps from the source draft appear highlighted in the review -- these flag content the SOP owner should verify.
-- For best results with ChatGPT, use GPT-4o or GPT-4. The extraction prompt is optimized for these models.
+
