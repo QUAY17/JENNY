@@ -156,10 +156,9 @@ def build_image_paragraph(para_id, rel_id, width_emu, height_emu, ilvl=0):
     """Build an OOXML paragraph containing an inline image."""
     doc_pr_id = abs(hash(para_id)) % 999999
     # Indent to match numbered list levels: 720 twips (0.5in) per level
-    indent = ""
-    if ilvl > 0:
-        left_twips = 720 * (ilvl + 1)  # +1 to match numbered list hanging indent
-        indent = f'<w:ind w:left="{left_twips}"/>'
+    # ilvl 0 steps use 720 twips indent, each deeper level adds 720 more
+    left_twips = 720 * (ilvl + 1)
+    indent = f'<w:ind w:left="{left_twips}"/>'
     return (
         f'<w:p w14:paraId="{para_id}" w14:textId="{para_id}" '
         f'w:rsidR="00000001" w:rsidRDefault="00000001">'

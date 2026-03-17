@@ -306,6 +306,23 @@ def _extract_draft_assets(session_id, draft_path):
             total_pages = len(pdf_doc)
             img_counter = 0
 
+            # Collect numbered step y-positions across all pages for image mapping
+            step_y_positions = []  # (absolute_y, step_index)
+            step_idx = 0
+            for pn in range(total_pages):
+                pg = pdf_doc[pn]
+                pg_h = pg.rect.height
+                blocks = pg.get_text('dict')['blocks']
+                for block in blocks:
+                    if 'lines' not in block:
+                        continue
+                    for line in block['lines']:
+                        text = ''.join(span['text'] for span in line['spans']).strip()
+                        if re.match(r'^\d+\.?\s', text):
+                            abs_y = pn + (line['bbox'][1] / pg_h)
+                            step_y_positions.append((abs_y, step_idx))
+                            step_idx += 1
+
             for page_num in range(total_pages):
                 page = pdf_doc[page_num]
                 page_h = page.rect.height
@@ -328,12 +345,23 @@ def _extract_draft_assets(session_id, draft_path):
                         img_ext = base_image.get("ext", "png")
                         img_name = f"pdf_image_{img_counter}.{img_ext}"
                         (images_dir / img_name).write_bytes(img_bytes)
-                        position_frac = (page_num + (bbox[1] / page_h)) / max(total_pages, 1)
+
+                        img_abs_y = page_num + (bbox[1] / page_h)
+
+                        # Find the last numbered step above this image
+                        after_step_idx = 0
+                        for sy, si in step_y_positions:
+                            if sy < img_abs_y:
+                                after_step_idx = si
+                            else:
+                                break
+
                         image_positions.append({
                             "src": img_name,
                             "width_emu": int(render_w * 12700),
                             "height_emu": int(render_h * 12700),
-                            "position_frac": position_frac,
+                            "position_frac": img_abs_y / max(total_pages, 1),
+                            "after_step_idx": after_step_idx,
                         })
                         img_counter += 1
                     except Exception:
@@ -812,13 +840,17 @@ def extract():
             }
 
         if image_source == "pdf":
-            # PDF: distribute images proportionally through steps
+            # PDF: position images after the step they follow in the source
             num_steps = len(config["s6_steps"])
             new_steps = []
             img_at_step = {}
             for img in image_positions:
-                target_idx = int(img["position_frac"] * num_steps)
-                target_idx = min(target_idx, num_steps - 1)
+                if "after_step_idx" in img:
+                    target_idx = min(img["after_step_idx"], num_steps - 1)
+                else:
+                    # Fallback to proportional if no step mapping
+                    target_idx = int(img["position_frac"] * num_steps)
+                    target_idx = min(target_idx, num_steps - 1)
                 img_at_step.setdefault(target_idx, []).append(img)
 
             for step_idx, step in enumerate(config["s6_steps"]):
@@ -1092,8 +1124,11 @@ def import_config():
                 new_steps = []
                 img_at_step = {}
                 for img in image_positions:
-                    target_idx = int(img["position_frac"] * num_steps)
-                    target_idx = min(target_idx, num_steps - 1)
+                    if "after_step_idx" in img:
+                        target_idx = min(img["after_step_idx"], num_steps - 1)
+                    else:
+                        target_idx = int(img["position_frac"] * num_steps)
+                        target_idx = min(target_idx, num_steps - 1)
                     img_at_step.setdefault(target_idx, []).append(img)
                 for step_idx, step in enumerate(config["s6_steps"]):
                     step["type"] = "text"
