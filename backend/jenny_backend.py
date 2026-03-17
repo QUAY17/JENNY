@@ -1198,7 +1198,10 @@ def serve_image(session_id, filename):
 
 @app.route("/api/key-status", methods=["GET"])
 def key_status():
-    return jsonify({"has_key": bool(ANTHROPIC_API_KEY)})
+    return jsonify({
+        "has_key": bool(ANTHROPIC_API_KEY),
+        "keyed_build": EMBEDDED_API_KEY is not None,
+    })
 
 @app.route("/api/set-key", methods=["POST"])
 def set_key():

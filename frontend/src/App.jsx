@@ -103,11 +103,11 @@ function ConfigEditor({ config, onChange, sessionId }) {
   if (!config) return null;
 
   const sectionLabels = {
-    full_title: "1. Full Title",
-    short_title: "1. Short Title",
-    structure_type: "1. Structure Type",
-    cover_date: "1. Cover Date",
-    purpose: "2. Purpose",
+    full_title: "Full Title",
+    short_title: "Short Title",
+    structure_type: "Structure Type",
+    cover_date: "Cover Date",
+    purpose: "1. Purpose",
     scope: "2. Scope",
     s3_supersession: "3. Supersession",
     s4_roles: "4. Roles",
@@ -367,10 +367,14 @@ export default function JennyApp() {
   const [downloadUrl, setDownloadUrl] = useState(null);
   const [modelLabel, setModelLabel] = useState("");
   const [hasKey, setHasKey] = useState(null); // null = loading, true/false = known
+  const [keyedBuild, setKeyedBuild] = useState(null); // true = embedded key exe, false = keyless exe
   const [apiKeyInput, setApiKeyInput] = useState("");
 
   useEffect(() => {
-    fetch(`${API_BASE}/api/key-status`).then(r => r.json()).then(d => setHasKey(d.has_key)).catch(() => setHasKey(false));
+    fetch(`${API_BASE}/api/key-status`).then(r => r.json()).then(d => {
+      setHasKey(d.has_key);
+      setKeyedBuild(d.keyed_build);
+    }).catch(() => { setHasKey(false); setKeyedBuild(false); });
   }, []);
 
   const submitApiKey = async () => {
@@ -639,7 +643,7 @@ export default function JennyApp() {
       <div style={{ display: "grid", gridTemplateColumns: "380px 1fr", minHeight: "calc(100vh - 57px)" }}>
         {/* Left Panel */}
         <div style={{ borderRight: `1px solid ${colors.border}`, padding: 24, display: "flex", flexDirection: "column", gap: 20 }}>
-          {hasKey === false && (
+          {hasKey === false && keyedBuild && (
             <div style={{ background: colors.surfaceAlt, border: `1px solid ${colors.border}`, borderRadius: 8, padding: 14 }}>
               <div style={{ fontSize: 11, fontFamily: font, color: colors.textDim, marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.1em" }}>API Key Required</div>
               <div style={{ display: "flex", gap: 8 }}>
@@ -648,7 +652,6 @@ export default function JennyApp() {
                   style={{ flex: 1, padding: "8px 10px", borderRadius: 4, border: `1px solid ${colors.border}`, background: colors.bg, color: colors.text, fontFamily: "monospace", fontSize: 11 }} />
                 <button onClick={submitApiKey} style={{ padding: "8px 14px", borderRadius: 4, border: "none", background: colors.accent, color: "#fff", fontFamily: font, fontSize: 11, fontWeight: 600, cursor: "pointer" }}>SET</button>
               </div>
-              <div style={{ fontSize: 10, color: colors.textDim, marginTop: 6, fontFamily: font }}>Or skip and use "Paste Config" with an external LLM</div>
             </div>
           )}
           <div>
@@ -661,35 +664,53 @@ export default function JennyApp() {
 
           <div>
             <div style={{ fontSize: 11, fontFamily: font, color: colors.textDim, marginBottom: 12, textTransform: "uppercase", letterSpacing: "0.1em" }}>2. Extract Config</div>
-            <button disabled={!template || !draft || status === "extracting"} onClick={extractConfig}
-              style={{
-                width: "100%", padding: "12px 20px", borderRadius: 6, border: "none",
-                background: (!template || !draft) ? colors.surfaceAlt : colors.accent,
-                color: (!template || !draft) ? colors.textDim : "#fff",
-                fontFamily: font, fontSize: 13, fontWeight: 600,
-                cursor: (!template || !draft) ? "default" : "pointer",
-                opacity: status === "extracting" ? 0.7 : 1,
-              }}>
-              {status === "extracting" ? "EXTRACTING..." : "EXTRACT CONFIG"}
-            </button>
-            <div style={{ fontSize: 10, color: colors.textDim, marginTop: 6, fontFamily: font }}>{modelLabel ? `Model: ${modelLabel}` : "Uses Anthropic API to extract config"}</div>
-
-            <div style={{
-              marginTop: 12, padding: "8px 0", borderTop: `1px solid ${colors.border}`,
-              display: "flex", alignItems: "center", gap: 10,
-            }}>
-              <span style={{ fontSize: 10, fontFamily: font, color: colors.success, fontWeight: 700, whiteSpace: "nowrap" }}>OR</span>
-              <button onClick={handleConfigPaste} style={{
-                flex: 1, padding: "10px 0", borderRadius: 6, border: `1px solid ${colors.border}`,
-                background: colors.surfaceAlt, color: colors.textMuted, fontFamily: font, fontSize: 11, fontWeight: 600,
-                cursor: "pointer",
-              }}>
-                PASTE CONFIG FROM EXTERNAL LLM
+            {(hasKey || keyedBuild) && (<>
+              <button disabled={!template || !draft || status === "extracting"} onClick={extractConfig}
+                style={{
+                  width: "100%", padding: "12px 20px", borderRadius: 6, border: "none",
+                  background: (!template || !draft) ? colors.surfaceAlt : colors.accent,
+                  color: (!template || !draft) ? colors.textDim : "#fff",
+                  fontFamily: font, fontSize: 13, fontWeight: 600,
+                  cursor: (!template || !draft) ? "default" : "pointer",
+                  opacity: status === "extracting" ? 0.7 : 1,
+                }}>
+                {status === "extracting" ? "EXTRACTING..." : "EXTRACT CONFIG"}
               </button>
-            </div>
-            <div style={{ fontSize: 10, color: colors.textDim, marginTop: 4, fontFamily: font }}>
-              Use the extraction prompt with ChatGPT, Gemini, etc. and paste the output here
-            </div>
+              <div style={{ fontSize: 10, color: colors.textDim, marginTop: 6, fontFamily: font }}>{modelLabel ? `Model: ${modelLabel}` : "Uses Anthropic API to extract config"}</div>
+
+              <div style={{
+                marginTop: 12, padding: "8px 0", borderTop: `1px solid ${colors.border}`,
+                display: "flex", alignItems: "center", gap: 10,
+              }}>
+                <span style={{ fontSize: 10, fontFamily: font, color: colors.success, fontWeight: 700, whiteSpace: "nowrap" }}>OR</span>
+                <button onClick={handleConfigPaste} style={{
+                  flex: 1, padding: "10px 0", borderRadius: 6, border: `1px solid ${colors.border}`,
+                  background: colors.surfaceAlt, color: colors.textMuted, fontFamily: font, fontSize: 11, fontWeight: 600,
+                  cursor: "pointer",
+                }}>
+                  PASTE CONFIG FROM EXTERNAL LLM
+                </button>
+              </div>
+              <div style={{ fontSize: 10, color: colors.textDim, marginTop: 4, fontFamily: font }}>
+                Use the extraction prompt with ChatGPT, Gemini, etc. and paste the output here
+              </div>
+            </>)}
+            {!hasKey && !keyedBuild && (
+              <>
+                <button onClick={handleConfigPaste} style={{
+                  width: "100%", padding: "12px 20px", borderRadius: 6, border: "none",
+                  background: (!template || !draft) ? colors.surfaceAlt : colors.accent,
+                  color: (!template || !draft) ? colors.textDim : "#fff",
+                  fontFamily: font, fontSize: 13, fontWeight: 600,
+                  cursor: (!template || !draft) ? "default" : "pointer",
+                }}>
+                  EXTRACT WITH EXTERNAL LLM
+                </button>
+                <div style={{ fontSize: 10, color: colors.textDim, marginTop: 6, fontFamily: font }}>
+                  Copy the prompt into ChatGPT, Gemini, etc. and paste the output back
+                </div>
+              </>
+            )}
           </div>
 
           <div>
