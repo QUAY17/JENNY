@@ -664,7 +664,7 @@ export default function JennyApp() {
 
           <div>
             <div style={{ fontSize: 11, fontFamily: font, color: colors.textDim, marginBottom: 12, textTransform: "uppercase", letterSpacing: "0.1em" }}>2. Extract Config</div>
-            {(hasKey || keyedBuild) && (<>
+            {keyedBuild && (<>
               <button disabled={!template || !draft || status === "extracting"} onClick={extractConfig}
                 style={{
                   width: "100%", padding: "12px 20px", borderRadius: 6, border: "none",
@@ -695,7 +695,7 @@ export default function JennyApp() {
                 Use the extraction prompt with ChatGPT, Gemini, etc. and paste the output here
               </div>
             </>)}
-            {!hasKey && !keyedBuild && (
+            {!keyedBuild && (
               <>
                 <button onClick={handleConfigPaste} style={{
                   width: "100%", padding: "12px 20px", borderRadius: 6, border: "none",

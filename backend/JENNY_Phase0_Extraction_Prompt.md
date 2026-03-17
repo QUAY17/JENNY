@@ -36,11 +36,10 @@ CRITICAL RULES -- VIOLATIONS CAUSE PIPELINE FAILURE:
 
 9. IMAGES. The source may contain [IMAGE: filename] markers indicating where screenshots or diagrams appear. These images are handled automatically by the pipeline -- do NOT include them in s6_steps. However, be aware that the step immediately before an image marker likely introduces or references that image. Preserve the step ordering around image markers so images remain correctly positioned in the final output.
 
-10. EXTRACTION NOTES. Use the extraction_notes field ONLY to flag genuine ambiguities or problems the SOP owner must resolve. Do NOT flag routine situations like missing dates, missing scope, or inability to detect highlighting — these are expected and handled automatically. Only flag:
-   - Spelling corrections you applied (note original and corrected forms)
-   - Ambiguous step hierarchy where the source was genuinely unclear and you had to guess
-   - Contradictory or confusing instructions in the source that need human clarification
-   - Content that appears truncated, corrupt, or unreadable
+10. EXTRACTION NOTES. Keep notes short (one sentence each). Only flag:
+   - Spelling/grammar corrections you applied (e.g., "Corrected 'a ONOR' to 'an ONOR'")
+   - Content that appears truncated or unreadable
+   Do NOT flag: missing dates, missing scope, highlighting detection, hierarchy decisions, or any routine situation. Keep the list empty if nothing needs human attention.
 
 11. OUTPUT FORMAT. Output the entire config inside a single Python code block (triple backticks with "python" language tag). Include EVERYTHING inside the code block: the comment lines, the JENNY_CONFIG = { ... }, all of it. No text before the code block. No text after the code block. No "Here is the config:" preamble. The code block must start with the # comment line and end with the closing }.
 ```
@@ -59,7 +58,7 @@ JENNY_CONFIG = {
     "full_title": "",          # Full title for the cover page ONLY. Include org prefix (e.g., "FEMA Incident Workforce Academy (FIWA) Job Aid - ..."). Encode & as &amp;
     "short_title": "",         # The procedure name ONLY — omit organizational prefixes. E.g., "Cancelling an Onboarding Training Event in DTS" NOT "FEMA Incident Workforce Academy (FIWA) Job Aid Cancelling...". Encode & as &amp;
     "structure_type": "single",  # "single" or "multi"
-    "cover_date": "",          # Date from source. Leave EMPTY STRING if no date in source — do NOT guess or use today's date
+    "cover_date": "",          # Date from source, or leave empty if none found
     "author": "JENNY-v13",    # Do not change
     "gen_date": "",            # Today's date as MM/DD/YYYY
 

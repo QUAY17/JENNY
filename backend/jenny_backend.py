@@ -125,10 +125,9 @@ def sanitize_config(config):
         config["structure_type"] = "single"
         issues.append("Reset invalid structure_type to 'single'")
 
-    # Leave cover_date empty if not found — user must fill it in
+    # Default cover_date to current month + year if not found
     if not config.get("cover_date") or config["cover_date"].strip() == "":
-        config["cover_date"] = ""
-        issues.append("No cover_date found in source. Please set the cover date.")
+        config["cover_date"] = datetime.now().strftime("%B %Y")
 
     # Ensure required fields exist
     defaults = {
@@ -387,6 +386,7 @@ def _extract_draft_assets(session_id, draft_path):
         import zipfile
         image_positions = []
         hyperlinks = []
+        highlights = []
         try:
             with zipfile.ZipFile(draft_path, 'r') as z:
                 xml = z.read('word/document.xml').decode('utf-8')
@@ -442,12 +442,21 @@ def _extract_draft_assets(session_id, draft_path):
                     if text:
                         ilvl_m = re.search(r'w:ilvl w:val="(\\d+)"', para)
                         if ilvl_m:
+                            # Track highlights on numbered steps
+                            hl_vals = re.findall(r'w:highlight w:val="([^"]+)"', para)
+                            if hl_vals:
+                                highlights.append({
+                                    "step_idx": numbered_para_idx,
+                                    "color": hl_vals[0],
+                                    "text_prefix": text[:30],
+                                })
                             numbered_para_idx += 1
         except Exception:
             pass
 
         sessions[session_id]["image_positions"] = image_positions
         sessions[session_id]["hyperlinks"] = hyperlinks
+        sessions[session_id]["highlights"] = highlights
         sessions[session_id]["image_source"] = "docx"
 
 
@@ -816,6 +825,18 @@ def extract():
                 step["hyperlinks"] = step_links
 
     # ============================================================
+    # STEP 7d: Splice highlights from docx (if LLM missed them)
+    # ============================================================
+    src_highlights = sessions[session_id].get("highlights", [])
+    if src_highlights and "s6_steps" in config:
+        text_steps_hl = [s for s in config["s6_steps"] if s.get("type", "text") == "text"]
+        for hl in src_highlights:
+            idx = hl.get("step_idx", -1)
+            if 0 <= idx < len(text_steps_hl):
+                text_steps_hl[idx]["highlighted"] = True
+                text_steps_hl[idx]["highlight_color"] = hl.get("color", "yellow")
+
+    # ============================================================
     # STEP 8: Return config + stats
     # ============================================================
     steps = config.get("s6_steps", [])
@@ -1087,6 +1108,16 @@ def import_config():
                         step_links.append({"text": hl["text"], "uri": hl["uri"]})
                 if step_links:
                     step["hyperlinks"] = step_links
+
+        # Highlight splice: apply highlights extracted from docx at upload
+        src_highlights = sessions[session_id].get("highlights", [])
+        if src_highlights and "s6_steps" in config:
+            text_steps = [s for s in config["s6_steps"] if s.get("type", "text") == "text"]
+            for hl in src_highlights:
+                idx = hl.get("step_idx", -1)
+                if 0 <= idx < len(text_steps):
+                    text_steps[idx]["highlighted"] = True
+                    text_steps[idx]["highlight_color"] = hl.get("color", "yellow")
 
     # Stats (filter image entries from text-specific counts)
     steps = config.get("s6_steps", [])
