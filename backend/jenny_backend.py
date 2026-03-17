@@ -551,88 +551,8 @@ def extract():
             if not draft_text:
                 return jsonify({"error": "Could not extract text from PDF. File may be scanned/image-only."}), 400
 
-            # --- PDF IMAGE EXTRACTION (via PyMuPDF) ---
-            image_positions = []
-            try:
-                import fitz  # PyMuPDF
-                session_dir = UPLOAD_DIR / session_id
-                images_dir = session_dir / "images"
-                images_dir.mkdir(exist_ok=True)
-
-                pdf_doc = fitz.open(draft_path)
-                total_pages = len(pdf_doc)
-                img_counter = 0
-
-                for page_num in range(total_pages):
-                    page = pdf_doc[page_num]
-                    page_h = page.rect.height
-
-                    for img_info in page.get_image_info(xrefs=True):
-                        xref = img_info.get("xref", 0)
-                        bbox = img_info.get("bbox", (0, 0, 0, 0))
-                        if not xref:
-                            continue
-
-                        render_w = bbox[2] - bbox[0]  # width in points
-                        render_h = bbox[3] - bbox[1]  # height in points
-                        y_frac = bbox[1] / page_h if page_h else 0
-
-                        # Skip tiny inline icons (< 30pt in both dimensions)
-                        if render_w < 30 and render_h < 30:
-                            continue
-                        # Skip FEMA header branding (top 15% of page 1)
-                        if page_num == 0 and y_frac < 0.15:
-                            continue
-
-                        try:
-                            base_image = pdf_doc.extract_image(xref)
-                            img_bytes = base_image["image"]
-                            img_ext = base_image.get("ext", "png")
-                            img_name = f"pdf_image_{img_counter}.{img_ext}"
-
-                            (images_dir / img_name).write_bytes(img_bytes)
-
-                            # Position: fraction through entire document using y-pos
-                            position_frac = (page_num + (bbox[1] / page_h)) / max(total_pages, 1)
-
-                            image_positions.append({
-                                "src": img_name,
-                                "width_emu": int(render_w * 12700),  # points to EMU
-                                "height_emu": int(render_h * 12700),
-                                "position_frac": position_frac,
-                            })
-                            img_counter += 1
-                        except Exception:
-                            continue
-
-                pdf_doc.close()
-            except ImportError:
-                pass  # PyMuPDF not installed, skip image extraction
-
-            # --- PDF HYPERLINK EXTRACTION (via PyMuPDF) ---
-            hyperlinks = []
-            try:
-                import fitz as fitz_hl
-                pdf_hl = fitz_hl.open(draft_path)
-                for page_num in range(len(pdf_hl)):
-                    page = pdf_hl[page_num]
-                    for link in page.get_links():
-                        if link.get("kind") == 2 and link.get("uri"):  # kind 2 = URI
-                            # Get the text under the link rect
-                            rect = fitz_hl.Rect(link["from"])
-                            link_text = page.get_text("text", clip=rect).strip()
-                            if link_text:
-                                hyperlinks.append({
-                                    "text": link_text,
-                                    "uri": link["uri"],
-                                })
-                pdf_hl.close()
-            except Exception:
-                pass
-
-            sessions[session_id]["hyperlinks"] = hyperlinks
-            sessions[session_id]["image_positions"] = image_positions
-            sessions[session_id]["image_source"] = "pdf"
+            # Images and hyperlinks already extracted at upload time by _extract_draft_assets
+            # No need to re-extract here
 
         else:
             import zipfile
@@ -727,9 +647,11 @@ def extract():
 
             draft_text = "\n".join(structured_lines)
 
-            # Store image positions and hyperlinks on session for post-LLM splicing
-            sessions[session_id]["image_positions"] = image_positions
-            sessions[session_id]["hyperlinks"] = docx_hyperlinks
+            # Store image positions and hyperlinks if not already extracted at upload
+            if not sessions[session_id].get("image_positions"):
+                sessions[session_id]["image_positions"] = image_positions
+            if not sessions[session_id].get("hyperlinks"):
+                sessions[session_id]["hyperlinks"] = docx_hyperlinks
 
     except Exception as e:
         return jsonify({"error": f"Failed to read draft: {e}"}), 500
