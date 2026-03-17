@@ -27,7 +27,7 @@ JENNY ships as a single `.exe` file -- no Python, Node.js, or environment setup 
 | Executable | Description |
 |------------|-------------|
 | `JENNY_keyed.exe` | Anthropic API key embedded. Double-click and go. |
-| `JENNY.exe` | No key. User enters their own API key in the UI, or uses "Paste Config" with any external LLM. |
+| `JENNY.exe` | No key. User extracts config via any external LLM (ChatGPT, Gemini, etc.) and pastes it back. See `QUICKSTART.md`. |
 
 **Usage:** Place the `.exe` in its own folder and double-click. A browser window opens automatically to `http://localhost:5000`. The app creates `uploads/` and `jobs/` folders next to the exe at runtime.
 
@@ -79,7 +79,7 @@ JENNY/
     unpack_docx.py                      Unpack .docx to XML
     pack_docx.py                        Pack XML to .docx
     JENNY_Phase0_Extraction_Prompt.md   Phase 0 prompt (loaded at runtime)
-    JENNY_Phase0_Chatbot_Prompt.md      Single-paste prompt for Plan C
+    QUICKSTART.md                       End-user guide for JENNY.exe
   frontend/
     src/App.jsx                         React UI
     index.html
