@@ -47,6 +47,10 @@ JENNY ships as a single `.exe` -- no Python, Node.js, or environment setup requi
 
 Place the `.exe` in its own folder and double-click. A browser window opens at `http://localhost:5000`. The app creates `uploads/` and `jobs/` folders next to the exe at runtime.
 
+## Architecture Brief
+
+See [Efficiency by Design: Reducing AI Cost Through Smart Architecture](docs/Efficiency_By_Design_Brief.md) for a detailed look at how JENNY's split-phase architecture achieves a 15-25x cost reduction over LLM-heavy approaches by limiting the model to text comprehension and handling all document construction in code.
+
 ## Prototype Status
 
 Current prototype validates against 82-84 checks and scores 100% on tested SOPs:
