@@ -60,7 +60,7 @@ Current prototype validates against 82-84 checks and scores 100% on tested SOPs:
 | DTS Job Aid (Cancelling Training Event) | PDF | 82/82 (100%) | Images, hyperlinks |
 | CBA Reconciliation | DOCX | 83/83 (100%) | Highlights, nested hierarchy |
 | Travel Memo | DOCX | 83/83 (100%) | Baseline text-only |
-| Onboarding Travel Tracker | DOCX | In progress | Highlights, complex hierarchy |
+| Onboarding Travel Tracker | DOCX | 83/83 100%| Highlights, complex hierarchy |
 
 ### What Works
 - Full extraction-to-docx pipeline for both .docx and .pdf drafts
